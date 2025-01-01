@@ -277,13 +277,10 @@ const Battlefield: React.FC = () => {
     // handleConnect
     const handleConnect = () => {
       // socketRef.current = io("http://172.20.10.3:3000", {
-      socketRef.current = io("http://192.168.1.107:3000", {
+      socketRef.current = io("http://192.168.1.107:3000/battlefield", {
         auth: {
           token: client.id,
         },
-        query: {
-          connectionType: "battlefield"
-        }
       });
 
       socketRef.current.on("connect", connect);

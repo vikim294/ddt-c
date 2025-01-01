@@ -82,13 +82,10 @@ const GameRoom: React.FC = () => {
       }, 1000);
 
       // 连接服务器
-      socketRef.current = io("http://192.168.1.107:3000", {
+      socketRef.current = io("http://192.168.1.107:3000/matchmaking", {
         auth: {
           token: client.id,
         },
-        query: {
-          connectionType: "matchmaking"
-        }
       });
       // console.log("socketRef.current", socketRef.current);
 
