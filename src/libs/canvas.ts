@@ -1,5 +1,6 @@
 import { MAP_BOUNDARY_GAP } from "./constants"
 
+
 export interface Point {
   x: number
   y: number
@@ -136,7 +137,7 @@ export class MapCanvas extends Canvas {
       // console.log('angle', angle)
       return Math.floor(angle)
   }
-  
+
 } 
 
 export function setCtxPathByMap(ctx: CanvasRenderingContext2D, partMap: string[]) {

@@ -1,0 +1,60 @@
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+  }
+  
+  canvas {
+    position: absolute;
+    z-index: 1;
+  }
+  
+  #map {
+    /* display: none */
+  }
+  
+  #active {
+  }
+  
+  #ui-container {
+  }
+  
+  #ui-container .left {
+    position: fixed;
+    left: 0;
+    z-index: 999;
+  }
+  
+  #ui-container .right {
+    position: fixed;
+    right: 0;
+    z-index: 999;
+  }
+  
+  #ui-container button {
+    min-width: 40px;
+    height: 40px;
+    user-select: none; /* most explorers */
+    -webkit-user-select: none; /* safari */
+    -moz-user-select: none; /* firefox */
+    -ms-user-select: none;  /* ie, edge */
+  }
+
+  #tip .tip-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+  }
+
+  #tip .tip-content {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1001;
+    color: #fff;
+  }

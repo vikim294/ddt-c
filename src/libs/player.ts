@@ -2,9 +2,9 @@
 // import { Socket } from "socket.io-client"
 import { angleToRadian, getDistanceBetweenTwoPoints } from "../utils/math"
 import { Canvas, MapCanvas, Point, pointOutOfMap, setCtxPathByMap, toCanvasCoordinateY, toCartesianCoordinateY } from "./canvas"
-import { G, TRIDENT_ANGLE_DIFFERENCE } from "./constants"
+import { G, PLAYER_MOVING_DURATION, TRIDENT_ANGLE_DIFFERENCE } from "./constants"
 import { SHELL_CRATER_50_round } from "./shellCraters"
-import { MsgHandler } from "../App"
+import { MsgHandler } from "../views/Battlefield/index"
 
 export type Direction = 'left' | 'right'
 
@@ -20,6 +20,7 @@ export interface PlayerOptions {
   inactiveCanvas: Canvas
   activeCanvas: Canvas
   bombCanvas: Canvas
+  bombDrawingOffscreenCanvas: Canvas
 
   id: string
   name: string
@@ -37,6 +38,7 @@ export interface BombTarget {
 }
 
 export interface Bomb {
+    id: number
     x: number
     y: number
 
@@ -45,10 +47,17 @@ export interface Bomb {
 
     damageRadius: number
 
+    track: {
+        x: number
+        y: number
+        sec: number
+        bombAngle?: number
+    }[]
     targetX: number
     targetY: number
     bombSec: number
     isOutOfMapBoundary: boolean
+    firingTime: number
 }
 
 export interface TridentBomb extends Bomb {
@@ -62,6 +71,7 @@ export class Player {
   inactiveCanvas: Canvas
   activeCanvas: Canvas
   bombCanvas: Canvas
+  bombDrawingOffscreenCanvas: Canvas
 
   id: string
   name: string
@@ -71,7 +81,22 @@ export class Player {
   direction: Direction  
   leftPoint: Point
   rightPoint: Point
+  movingStartPoint: Point
+  preCalculatedPositionData: {
+      leftEndPoint: Point,
+      standPoint: Point,
+      rightEndPoint: Point,
+      angle: number
+  }
   angle: number
+
+  isMoving: boolean
+  keydownTimer: number | null
+  movingTimer: number | null
+  isFallingDown: boolean
+  fallStartPoint: Point
+  fallTargetPoint: Point
+  fallDuration: number
 
   health: number
   healthMax: number
@@ -82,7 +107,7 @@ export class Player {
   firingPower: number
 
   numberOfFires: number
-  bomb: Bomb
+  bombsData: Bomb[]
   firingTime: number
   
   isOperationDone: boolean
@@ -100,6 +125,7 @@ export class Player {
       inactiveCanvas,
       activeCanvas,
       bombCanvas,
+      bombDrawingOffscreenCanvas,
 
       id,
       name,
@@ -117,6 +143,7 @@ export class Player {
     this.inactiveCanvas = inactiveCanvas
     this.activeCanvas = activeCanvas
     this.bombCanvas = bombCanvas
+    this.bombDrawingOffscreenCanvas = bombDrawingOffscreenCanvas
 
     this.id = id
     this.name = name
@@ -126,7 +153,40 @@ export class Player {
     const surfacePoints = this.mapCanvas.getSurfacePointsByPointAndLength(this.centerPoint, Player.BOUNDING_BOX_LENGTH)
     this.leftPoint = surfacePoints[0]
     this.rightPoint = surfacePoints[surfacePoints.length - 1]
+    this.movingStartPoint = {
+        x: -1,
+        y: -1
+    }
+    this.preCalculatedPositionData = {
+        leftEndPoint: {
+            x: -1,
+            y: -1
+        },
+        standPoint: {
+            x: -1,
+            y: -1
+        },
+        rightEndPoint: {
+            x: -1,
+            y: -1
+        },
+        angle: 0
+    }
     this.angle = this.mapCanvas.getAngleByTwoTerrainPoints(this.leftPoint, this.rightPoint)
+
+    this.isMoving = false
+    this.keydownTimer = null
+    this.movingTimer = null
+    this.isFallingDown = false
+    this.fallStartPoint = {
+        x: -1,
+        y: -1
+    }
+    this.fallTargetPoint = {
+        x: -1,
+        y: -1
+    }
+    this.fallDuration = -1
 
     this.health = healthMax
     this.healthMax = healthMax
@@ -137,20 +197,7 @@ export class Player {
     this.firingPower = 0
 
     this.numberOfFires = 1
-    this.bomb = {
-        x: 0,
-        y: 0,
-
-        v0Horizontal: 0,
-        v0Vertical: 0,
-
-        damageRadius: 0,
-
-        targetX: 0,
-        targetY: 0,
-        bombSec: 0,
-        isOutOfMapBoundary: false
-    }
+    this.bombsData = []
     this.firingTime = 0
 
     this.isOperationDone = true
@@ -308,37 +355,172 @@ export class Player {
 //     })
 //   }
 
-  playerMoves(direction: Direction) {
-      // this.logPlayerInfo()
+//   playerMoves(direction: Direction) {
+//       // this.logPlayerInfo()
 
-      if(this.direction !== direction) {
+//       if(this.direction !== direction) {
+//         this.direction = direction
+//           // todo
+//           // 如果方向改变了，则只调整角度，不移动...
+
+
+//       }
+
+//       if(direction === 'right' || direction === 'left') {
+//           if(this.isPlayerBlocked()) {
+//               return
+//           }
+
+//           if(this.willPlayerFall()) {
+//               console.log('fall!')
+
+//               this.playerFall()
+
+//               return
+//           }
+
+//           if(direction === 'right') {
+//             this.calculateAndDrawPlayerByPoint(this.rightPoint)
+//           }
+//           else {
+//             this.calculateAndDrawPlayerByPoint(this.leftPoint)
+//           }
+//       }
+//   }
+
+  updatePlayerPositionDataByPreCalculatedPositionData() {
+    const {
+        standPoint,
+        leftEndPoint,
+        rightEndPoint,
+        angle
+    } = this.preCalculatedPositionData
+    this.centerPoint.x = standPoint.x
+    this.centerPoint.y = standPoint.y
+    this.leftPoint = leftEndPoint
+    this.rightPoint = rightEndPoint
+    this.angle = angle
+  }
+
+  playerSmoothlyMovesAnim(timestamp: number) {
+    if(!this.isMoving) {
+        return
+    }
+
+    // 根据 player.direction，从当前A -> B
+    if(!this.movingTimer) {
+        this.movingTimer = timestamp
+    }
+
+    const progress = Math.min((timestamp - this.movingTimer) / PLAYER_MOVING_DURATION, 1)
+
+    // 
+    const xA = this.movingStartPoint.x
+    const yA = this.movingStartPoint.y
+    const xB = this.direction === 'right' ? this.rightPoint.x : this.leftPoint.x
+    const yB = this.direction === 'right' ? this.rightPoint.y : this.leftPoint.y
+    const x = xA + (xB - xA) * progress
+    const y = yA + (yB - yA) * progress
+    this.centerPoint.x = Math.floor(x)
+    this.centerPoint.y = Math.floor(y)
+
+    if(progress === 1) {
+        // console.log('arrived at B')
+        // replace A with B
+        this.updatePlayerPositionDataByPreCalculatedPositionData()
+
+        console.log('x, y', this.centerPoint.x, this.centerPoint.y)
+
+        this.drawPlayer()
+        this.updatePlayerPositionDataOnPage()
+
+        // B -> C
+        this.playerSmoothlyMoves()
+        return
+    }
+    this.drawPlayer()
+    requestAnimationFrame(this.playerSmoothlyMovesAnim.bind(this))
+  }
+
+  updatePlayerPositionDataOnPage() {
+    this.msgHandler.setActivePlayerFiringAngle(this.angle)
+  }
+
+  playerSmoothlyMoves() {
+    // 判断 block 
+    if(this.isPlayerBlocked()) {
+        console.log('block!')
+        this.isMoving = false
+        return
+    }
+
+    // 判断 fall 
+    if(this.willPlayerFallDown()) {
+        console.log('fall!')
+        this.msgHandler.onPlayerFall()
+        return
+    }
+
+    // move init
+    this.movingTimer = null
+    this.movingStartPoint = {
+        x: this.centerPoint.x,
+        y: this.centerPoint.y,
+    }
+
+    // A -> B anim
+    requestAnimationFrame(this.playerSmoothlyMovesAnim.bind(this))
+
+    // precalculate position data at B
+    const targetPoint = this.direction === 'right' ? this.rightPoint : this.leftPoint
+    const {
+        leftPoint, standPoint, rightPoint, angle
+    } = this.calculatePlayerPositionDataByPoint(targetPoint)
+    // points
+    this.preCalculatedPositionData.leftEndPoint = leftPoint
+    this.preCalculatedPositionData.standPoint = standPoint
+    this.preCalculatedPositionData.rightEndPoint = rightPoint
+    // angle
+    this.preCalculatedPositionData.angle =angle
+  }
+
+  handlePlayerMove(direction: Direction) {
+    // player改变了朝向
+    if(this.direction !== direction) {
         this.direction = direction
-          // todo
-          // 如果方向改变了，则只调整角度，不移动...
 
+        // 开始计时器 100ms后move
+        if(this.keydownTimer) {
+            clearTimeout(this.keydownTimer)
+        }
+        this.keydownTimer = setTimeout(()=>{
+            // 如果100ms内 keyup了 则不移动
+            if(!this.isMoving) {
+                return
+            }
+            // 否则 更新player位置信息 并 移动
+            this.angle = this.getPlayerAngleByTwoTerrainPoints(this.leftPoint, this.rightPoint)
+            this.drawPlayer()
+            this.updatePlayerPositionDataOnPage()
+        
+            this.playerSmoothlyMoves()
+        }, 100)
+    }
+    // player未改变朝向
+    else {
+        this.playerSmoothlyMoves() 
+    }
+  }
 
-      }
+  handlePlayerMoveEnd(centerPoint: Point) {
+    if(this.isFallingDown) return
+    this.isMoving = false
+    this.centerPoint = centerPoint
 
-      if(direction === 'right' || direction === 'left') {
-          if(this.isPlayerBlocked()) {
-              return
-          }
+    console.log('PlayerMoveEnd', centerPoint.x, centerPoint.y)
 
-          if(this.willPlayerFall()) {
-              console.log('fall!')
-
-              this.playerFall()
-
-              return
-          }
-
-          if(direction === 'right') {
-            this.calculateAndDrawPlayerByPoint(this.rightPoint)
-          }
-          else {
-            this.calculateAndDrawPlayerByPoint(this.leftPoint)
-          }
-      }
+    // 更新player position data
+    this.updatePlayerPositionData()
   }
 
   calculateAndDrawPlayerByPoint(point: Point) {
@@ -348,29 +530,30 @@ export class Player {
           this.drawPlayer()
       }
       else {
-          // 说明如果再走一步，那么左右两点的x将会相同！
-          // 所以需要根据目前的位置（目前 左右两点的x是不相同的！），决定应该block 还是 fall
-          if(this.direction === 'right') {
-              if(this.rightPoint.y > this.leftPoint.y) {
-                  // fall
-                  this.playerFall()
-              }
-              else if(this.rightPoint.y < this.leftPoint.y) {
-                  // block
-                  // 什么也不用干
-              }
-          }
-          else {
-              // left
-              if(this.leftPoint.y > this.rightPoint.y) {
-                  // fall
-                  this.playerFall()
-              }
-              else if(this.leftPoint.y < this.rightPoint.y) {
-                  // block
-                  // 什么也不用干
-              }
-          }
+        console.log('locationData', locationData)
+        //   // 说明如果再走一步，那么左右两点的x将会相同！
+        //   // 所以需要根据目前的位置（目前 左右两点的x是不相同的！），决定应该block 还是 fall
+        //   if(this.direction === 'right') {
+        //       if(this.rightPoint.y > this.leftPoint.y) {
+        //           // fall
+        //           this.playerFall()
+        //       }
+        //       else if(this.rightPoint.y < this.leftPoint.y) {
+        //           // block
+        //           // 什么也不用干
+        //       }
+        //   }
+        //   else {
+        //       // left
+        //       if(this.leftPoint.y > this.rightPoint.y) {
+        //           // fall
+        //           this.playerFall()
+        //       }
+        //       else if(this.leftPoint.y < this.rightPoint.y) {
+        //           // block
+        //           // 什么也不用干
+        //       }
+        //   }
       }
   }
 
@@ -398,155 +581,200 @@ export class Player {
   }
 
   isPlayerBlocked() {
-      if(this.direction === 'right') {
-          if(this.leftPoint.x !== this.rightPoint.x) {
-              // 那么就能区分出左右两点
-              if(this.rightPoint.y < this.centerPoint.y) {
-                  // 右点在中点的上方
-                  if(this.rightPoint.x === this.centerPoint.x) {
-                      console.info('右点在中点的正上方')
-                      return true
-                  }
-                  
-                  if(this.leftPoint.x < this.centerPoint.x && this.rightPoint.x < this.centerPoint.x) {
-                      console.info('左右两点在中点的左侧，且右点在中点的上方')
-                      return true
-                  }
-              }
+    const standPoint = {
+        x: this.centerPoint.x,
+        y: this.centerPoint.y
+    }
+    if(this.direction === 'right') {
+        // 如果 right point 和 stand point 的角度 > 65
+         return this.getPlayerAngleByTwoTerrainPoints(this.rightPoint, standPoint) > 65
+    }
+    else {
+        return this.getPlayerAngleByTwoTerrainPoints(this.leftPoint, standPoint) > 65
+    }
+  }
+  
 
-              return false
-          }
-          else {
-              console.info('isPlayerBlocked 左右两点的x相同!')
-              return true
-          }
-          
-      }
+  willPlayerFallDown() {
+    const standPoint = {
+        x: this.centerPoint.x,
+        y: this.centerPoint.y
+    }
+    if(this.direction === 'right') {
+        // 如果 right point 和 stand point 的距离 <= 5px
+        const d = getDistanceBetweenTwoPoints(standPoint, this.rightPoint)
+        return d <= 5
+    }
+    else {
+        const d = getDistanceBetweenTwoPoints(standPoint, this.leftPoint)
+        return d <= 5
+    }
   }
 
-  willPlayerFall() {
-      if(this.direction === 'right') {
-          if(this.leftPoint.x !== this.rightPoint.x) {
-              // 那么就能区分出左右两点，左点一定在右点的左侧
-          
-              if(this.rightPoint.x === this.centerPoint.x) {
-                  console.info('右点和中点的x相同')
-                  return true
-              }
-              else if(this.rightPoint.x < this.centerPoint.x) {
-                  console.info('右点在中点的左侧')
-                  return true
-              }
-                
-              return false
-          }
-          else {
-              if(this.leftPoint.x <= this.centerPoint.x) {
-                  // 左右两点和中点的x相同，或 左右两点都在中点左侧
-                  return true
-              }
-              else {
-                  // 左右两点都在中点右侧
-                  return false
-              }
-          }
-      }
-      else {
-          if(this.leftPoint.x !== this.rightPoint.x) {
-              // 那么就能区分出左右两点，左点一定在右点的左侧
-          
-              if(this.leftPoint.x === this.centerPoint.x) {
-                  console.info('左点和中点的x相同')
-                  return true
-              }
-              else if(this.leftPoint.x > this.centerPoint.x) {
-                  console.info('左点在中点的右侧')
-                  return true
-              }
-                
-              return false
-          }
-          else {
-              if(this.leftPoint.x >= this.centerPoint.x) {
-                  // 左右两点和中点的x相同，或 左右两点都在中点右侧
-                  return true
-              }
-              else {
-                  // 左右两点都在中点右侧
-                  return false
-              }
-          }
-      }
+  playerFall(centerPoint: Point) {
+    this.centerPoint = centerPoint
+    const inc = this.direction === 'right' ? 5 : -5
+    const newPlayerX = this.centerPoint.x + inc
+    const { data } = this.mapCanvas.ctx.getImageData(newPlayerX, this.centerPoint.y, 1, this.mapCanvas.el.height - this.centerPoint.y)
+    for(let i = 0; i < data.length; i += 4) {
+        const index = i / 4
+        const r = data[i]
+        // const g = data[i + 1]
+        // const b = data[i + 2]
+        // const a = data[i + 3]
+        const x = newPlayerX
+        const y = this.centerPoint.y + index
+
+        if(r === 255) {
+            // console.log(x, y, a)
+
+            // fall init
+            this.isFallingDown = true
+            this.movingTimer = null
+            this.fallStartPoint = {
+                x: newPlayerX,
+                y: this.centerPoint.y,
+            }
+            this.fallTargetPoint = {
+                x,
+                y
+            }
+            // 下落速度 1000ms = 1s = 100px
+            this.fallDuration = (this.fallTargetPoint.y - this.fallStartPoint.y) * 10
+
+            // fall anim 落到点x，y
+            requestAnimationFrame(this.playerFallAnim.bind(this))    
+            return
+        }
+    }
+
+    console.info('player掉进地图外了！')
   }
 
-  playerFall() {
-      const inc = this.direction === 'right' ? 5 : -5
-      const newPlayerX = this.centerPoint.x + inc
-      const { data } = this.mapCanvas.ctx.getImageData(newPlayerX, this.centerPoint.y, 1, this.mapCanvas.el.height - this.centerPoint.y)
-      for(let i = 0; i < data.length; i += 4) {
-          const index = i / 4
-          const r = data[i]
-          // const g = data[i + 1]
-          // const b = data[i + 2]
-          // const a = data[i + 3]
-          const x = newPlayerX
-          const y = this.centerPoint.y + index
+  playerFallAnim(timestamp: number) {
+    if(!this.movingTimer) {
+        this.movingTimer = timestamp
+    }
 
-          if(r === 255) {
-              // console.log(x, y, a)
-              this.calculateAndDrawPlayerByPoint({
-                  x,
-                  y
-              })
-              return
-          }
-      }
+    const progress = Math.min((timestamp - this.movingTimer!) / this.fallDuration, 1)
 
-      console.info('掉进地图外了！')
+    const xA = this.fallStartPoint.x
+    const yA = this.fallStartPoint.y
+    const xB = this.fallTargetPoint.x
+    const yB = this.fallTargetPoint.y
+    const x = xA + (xB - xA) * progress
+    const y = yA + (yB - yA) * progress
+    this.centerPoint.x = Math.floor(x)
+    this.centerPoint.y = Math.floor(y)
+    this.drawPlayer()
+
+    if(progress === 1) {
+        this.isFallingDown = false
+        this.updatePlayerPositionData()
+        this.isMoving = false
+        return
+    }
+    requestAnimationFrame(this.playerFallAnim.bind(this))
+  }
+
+  getPlayerAngleByTwoTerrainPoints(pointA: Point, pointB: Point) {
+    const angle = this.mapCanvas.getAngleByTwoTerrainPoints(pointA, pointB)
+    return this.direction === 'right' ? angle : -angle
+  }
+
+  calculatePlayerPositionDataByPoint(point: Point) {
+    const surfacePoints = this.mapCanvas.getSurfacePointsByPointAndLength(point, Player.BOUNDING_BOX_LENGTH)
+    const leftPoint = surfacePoints[0]
+    const rightPoint = surfacePoints[surfacePoints.length - 1]
+    const standPoint = {
+        ...point
+    }
+    const angle = this.getPlayerAngleByTwoTerrainPoints(leftPoint, rightPoint)
+    return {
+        leftPoint, standPoint, rightPoint, angle
+    }
+  }
+
+  updatePlayerPositionData() {
+    const {
+        leftPoint, 
+        rightPoint, 
+        angle
+    } = this.calculatePlayerPositionDataByPoint({
+        x: this.centerPoint.x,
+        y: this.centerPoint.y,
+    })
+
+    this.leftPoint = leftPoint
+    this.rightPoint = rightPoint
+    this.angle = angle
+
+    this.drawPlayer()
+    this.updatePlayerPositionDataOnPage()
   }
 
   // --------
   playerStartToFire() {
+    const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.el.width, this.bombDrawingOffscreenCanvas.el.height)
+
+    // console.time('preCalculateBombData')
+    // preCalculateBombData 耗时好像也不是很长，所以暂时不需要用web worker吧
+    this.preCalculateBombData(canvasData)
+    // console.timeEnd('preCalculateBombData')
+  }
+
+  checkPlayerNumberOfFires() {
+    // 发射后，隔1s后再发射
+    if(this.numberOfFires > 0) {
+        const timerId = setTimeout(()=>{
+            clearTimeout(timerId)
+            this.playerStartToFire()
+        }, 1000)
+    }
+  }
+
+  playerFires() {
+    if(this.msgHandler.getIsDrawingBomb()) return
+    this.msgHandler.setIsDrawingBomb(true)
+    this.drawBomb()
+  }
+
+  preCalculateBombData(canvasData: Uint8ClampedArray) {
+    // --- init bomb
     const firingAngle = this.angle + this.weaponAngle
     const angle = this.direction === 'right' ? firingAngle : 180 - firingAngle
     const power = this.firingPower
 
     const v0 = power * 10
     // console.log('v0', v0)
-    let v0Horizontal = v0 * Math.cos(angleToRadian(angle))
+    const v0Horizontal = v0 * Math.cos(angleToRadian(angle))
     // console.log('v0Horizontal', v0Horizontal)
 
     // 垂直方向
-    let v0Vertical = v0 * Math.sin(angleToRadian(angle))
+    const v0Vertical = v0 * Math.sin(angleToRadian(angle))
 
-    this.bomb = {
-        ...this.bomb,
-
-        // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
+    const bomb: Bomb = {
+        id: +new Date(),
         x: this.centerPoint.x,
+        // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
         y: this.centerPoint.y - Player.BOUNDING_BOX_LENGTH,
-
         v0Horizontal,
         v0Vertical,
-
         damageRadius: 50,
+        track: [],
+        bombSec: -1,
+        isOutOfMapBoundary: false,
+        targetX: -1,
+        targetY: -1,
+        firingTime: -1
     }
 
-    this.playerFires()
-  }
+    this.bombsData.push(bomb)
 
-  playerFires() {
-    this.numberOfFires--
-
-    this.preCalculateBombData()
-    this.firingTime = +new Date()
-    this.drawBomb()
-  }
-
-  preCalculateBombData() {
+    // ---
     let sec = 0
-    let _bomb = {
-        ...this.bomb
+    const _bomb = {
+        ...bomb
     }
 
     const track = []
@@ -558,7 +786,9 @@ export class Player {
             sec
         })
 
-        sec += 0.004
+        sec += 0.001
+        sec = +sec.toFixed(3)
+
         const x = this.centerPoint.x + _bomb.v0Horizontal * sec
         const y = toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
         _bomb.x = Math.floor(x)
@@ -570,86 +800,155 @@ export class Player {
 
     // this.mapCanvas.drawTrack(track)
 
+    bomb.track = track
+
     // getTarget
-    for(let point of track) {
-        const {
-            x, y, sec
-        } = point
-        const { data } = this.mapCanvas.ctx.getImageData(x, y, 1, 1)
-        const r = data[0]
-        const g = data[1]
-        const b = data[2]
-        // console.log('x, y', x, y, 'r, g, b', r, g, b)
+    for(let i = 0; i < bomb.track.length; i++) {
+        // --- bomb角度计算
+        if(i >= 10 && i <= bomb.track.length - 11) {
+            const point1 = bomb.track[i - 10]
+            const point2 = bomb.track[i + 10]
 
-        if(!(r === 0 && g === 0 && b === 0)) {
-            this.bomb.targetX = x
-            this.bomb.targetY = y
-            this.bomb.bombSec = sec
+            const angle = this.mapCanvas.getAngleByTwoTerrainPoints(point1, point2)
+            // console.log('angle', angle)
+    
+            let bombAngle = null
+            if(this.direction === 'right') {
+                // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
+                bombAngle = -angle
+            }
+            else {
+                // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
+                bombAngle = 180 + -angle
+            }
+    
+            bomb.track[i].bombAngle = bombAngle
+        }
 
-            console.log('bomb inside map ')
-            // console.log(this.bomb)
-            return
+        if(bomb.bombSec === -1) {
+            const {
+                x, y, sec
+            } = bomb.track[i]
+
+            // 如果track上的该点 在map范围外
+            if(x < 0 || y < 0 || x >= this.bombDrawingOffscreenCanvas.el.width || y >= this.bombDrawingOffscreenCanvas.el.height) {
+                continue
+            }
+
+            // x y 像素的数据
+            const index = (y * this.bombDrawingOffscreenCanvas.el.width + x) * 4
+            const r = canvasData[index]
+            const g = canvasData[index + 1]
+            const b = canvasData[index + 2]
+            // const a = canvasData[index + 3]
+            // console.log('x, y', x, y, 'r, g, b, a', r, g, b, a)
+    
+            if(!(r === 0 && g === 0 && b === 0)) {
+                bomb.targetX = x
+                bomb.targetY = y
+                bomb.bombSec = sec
+    
+                // 在离屏canvas上 bombTarget 
+                this.bombTarget({
+                    x,
+                    y,
+                    damageRadius: bomb.damageRadius
+                }, this.bombDrawingOffscreenCanvas.ctx)
+
+            }
         }
     }
 
-    console.log('bomb out of map boundary')
-    const {
-        x, y
-    } = track[track.length - 1]
-    this.bomb.targetX = x
-    this.bomb.targetY = y
-    this.bomb.bombSec = sec
-    this.bomb.isOutOfMapBoundary = true
+    if(bomb.bombSec === -1) {
+        console.log('out of map boundary', bomb)
+        const {
+            x, y
+        } = bomb.track[bomb.track.length - 1]
+        bomb.targetX = x
+        bomb.targetY = y
+        bomb.bombSec = sec
+        bomb.isOutOfMapBoundary = true
+    }
+
+    // --- begin to fire
+    bomb.firingTime = +new Date()
+
+    console.log('bomb', bomb)
+
+    this.msgHandler.syncBombDataBeforePlayerFires(this.bombsData)
   } 
 
   drawBomb() {
-    const elapsedSec = (+new Date() - this.firingTime) / 1000
+    if(this.bombsData.length === 0 && this.numberOfFires === 0) {
+        this.msgHandler.setIsDrawingBomb(false)
 
-    if(elapsedSec >= this.bomb.bombSec) {
-        this.bombCanvas.ctx.clearRect(0, 0, this.bombCanvas.el.width, this.bombCanvas.el.height)
+        // 重置 this.firingPower
+        this.msgHandler.resetActivePlayerFiringPower()
 
-        if(!this.bomb.isOutOfMapBoundary) {
-            const target = {
-                x: this.bomb.x,
-                y: this.bomb.y,
-                damageRadius: this.bomb.damageRadius
-            }
-            this.bombTarget(target, this.mapCanvas.ctx)
-
-            // 对player的effect
-            this.msgHandler.checkBombEffect(target)
-        }
-
-        if(this.numberOfFires !== 0) {
-            // 继续发射
-            setTimeout(() => {
-                this.playerFires()
-            }, 2000);
-        }
-        else {
-            // 重置 this.firingPower
-            this.msgHandler.resetActivePlayerFiringPower()
-            // console.log('startNextTurn')
-            this.msgHandler.startNextTurn()
-        }
-
+        // nextTurn?
+        this.msgHandler.startNextTurn()
         return
     }
 
     requestAnimationFrame(this.drawBomb.bind(this))
 
     this.bombCanvas.ctx.clearRect(0, 0, this.bombCanvas.el.width, this.bombCanvas.el.height)
-    this.bombCanvas.ctx.beginPath()
-    this.bombCanvas.ctx.arc(this.bomb.x, this.bomb.y, 1, 0, Math.PI * 2)
-    this.bombCanvas.ctx.stroke()
 
-    // 计算在笛卡尔坐标系下的 x 和 y
-    const x = this.centerPoint.x + this.bomb.v0Horizontal * elapsedSec
-    // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
-    const y = toCanvasCoordinateY(toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.bombCanvas.el.height) + this.bomb.v0Vertical * elapsedSec + 1 / 2 * G * elapsedSec * elapsedSec, this.bombCanvas.el.height)
-    // 最终要绘制的bomb的坐标 需要用canvas的坐标系
-    this.bomb.x = Math.floor(x)
-    this.bomb.y = Math.floor(y)
+    for(let i = 0; i < this.bombsData.length; i++) {
+        const bomb = this.bombsData[i]
+        const elapsedMs = +new Date() - bomb.firingTime
+
+        if(elapsedMs >= bomb.bombSec * 1000) {
+            // weaponCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+            // 该bomb不应该再被渲染到画布上了
+            this.bombsData = this.bombsData.filter(item => item !== bomb)
+    
+            if(!bomb.isOutOfMapBoundary) {
+                const target = {
+                    x: bomb.x,
+                    y: bomb.y,
+                    damageRadius: bomb.damageRadius,
+                    bombAngle: bomb.track[elapsedMs].bombAngle
+                }
+                this.bombTarget(target, this.mapCanvas.ctx)
+                // bomb 对 players的effect
+                this.msgHandler.checkBombEffect(target)
+            }
+
+            continue
+        }
+
+        // --- render bomb
+        const {
+            x,
+            y,
+            // bombAngle
+        } = bomb.track[elapsedMs]
+
+        // 1.
+        this.bombCanvas.ctx.beginPath()
+        this.bombCanvas.ctx.arc(bomb.x, bomb.y, 1, 0, Math.PI * 2)
+        this.bombCanvas.ctx.stroke()
+        // 2.bomb使用图片 且角度动态改变
+        // this.bombCanvas.ctx.save()
+
+        // this.bombCanvas.ctx.translate(players[activePlayerIndex].bomb.x, players[activePlayerIndex].bomb.y)
+        // this.bombCanvas.ctx.rotate(angleToRadian(bombAngle))
+        // this.bombCanvas.ctx.drawImage(bombImgEl, 0, 0, bombImgEl.width, bombImgEl.height, -bombImgEl.width / 2, -bombImgEl.height / 2, bombImgEl.width, bombImgEl.height)
+
+        // this.bombCanvas.ctx.restore()
+
+        // 计算在笛卡尔坐标系下的 x 和 y
+        // const x = players[activePlayerIndex].x + players[activePlayerIndex].bomb.v0Horizontal * elapsedSec
+        // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
+        // const y = toCanvasCoordinateY(toCartesianCoordinateY(players[activePlayerIndex].y - PLAYER_BOUNDING_BOX_LENGTH) + players[activePlayerIndex].bomb.v0Vertical * elapsedSec + 1 / 2 * G * elapsedSec * elapsedSec)
+        // 最终要绘制的bomb的坐标 需要用canvas的坐标系
+        // players[activePlayerIndex].bomb.x = Math.floor(x)
+        // players[activePlayerIndex].bomb.y = Math.floor(y)
+
+        bomb.x = x
+        bomb.y = y
+    }
   }
 
   playerStartToFireTrident() {
@@ -669,6 +968,7 @@ export class Player {
         }
 
         const bomb: TridentBomb = {
+            id: +new Date(),
             // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
             x: this.centerPoint.x,
             y: this.centerPoint.y - Player.BOUNDING_BOX_LENGTH,
@@ -677,12 +977,15 @@ export class Player {
             v0Vertical: v0 * Math.sin(angleToRadian(newAngle)),
     
             damageRadius: 50,
+            track: [],
+
             isBombed: false,
 
-            targetX: 0,
-            targetY: 0,
-            bombSec: 0,
-            isOutOfMapBoundary: false
+            targetX: -1,
+            targetY: -1,
+            bombSec: -1,
+            isOutOfMapBoundary: false,
+            firingTime: -1,
         }
     
         this.tridentBombs.push(bomb)
@@ -717,7 +1020,7 @@ export class Player {
     for(let i = 0; i < 3; i++) {
         const bomb = this.tridentBombs[i]
         let sec = 0
-        let _bomb = {
+        const _bomb = {
             ...bomb
         }
 
@@ -744,7 +1047,7 @@ export class Player {
 
         // getTarget
         let isBombOutOfMapBoundary = true
-        for(let point of track) {
+        for(const point of track) {
             const {
                 x, y, sec
             } = point
@@ -888,8 +1191,6 @@ export class Player {
 
     this.mapCanvas.ctx.restore()
   }
-
-
 }
 
 export function checkBombEffect(bombTarget: BombTarget, player: Player) {
