@@ -3,15 +3,28 @@ import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { io, Socket } from "socket.io-client";
+import { SOCKET_SERVER_URL } from "../../utils/conf";
 
 interface ClientPlayer {
   id: string;
+  name: string;
   level: number;
+  healthMax: number;
+  weapon: {
+    angleRange: number;
+    damage: number;
+  },
 }
 
-const client: ClientPlayer = {
+const player: ClientPlayer = {
   id: `player_${window.navigator.userAgent.length}`,
+  name: `player_${window.navigator.userAgent.length}`,
   level: navigator.userAgent.length,
+  healthMax: 1000,
+  weapon: {
+    angleRange: 30,
+    damage: 250,
+  },
 };
 
 const GameRoom: React.FC = () => {
@@ -53,7 +66,7 @@ const GameRoom: React.FC = () => {
       console.log("connected");
       setConnectionState(true);
       // 开始匹配
-      socketRef.current?.emit("requestMatching", client);
+      socketRef.current?.emit("requestMatching", player);
     }
 
     function disconnect() {
@@ -82,9 +95,9 @@ const GameRoom: React.FC = () => {
       }, 1000);
 
       // 连接服务器
-      socketRef.current = io("http://192.168.1.107:3000/matchmaking", {
+      socketRef.current = io(`${SOCKET_SERVER_URL}/matchmaking`, {
         auth: {
-          token: client.id,
+          token: player.id,
         },
       });
       // console.log("socketRef.current", socketRef.current);
@@ -145,7 +158,7 @@ const GameRoom: React.FC = () => {
       <div className="info">
         <div>
           <label>玩家ID：</label>
-          <span>{client.id}</span>
+          <span>{player.id}</span>
         </div>
         <div>
           <label>房间号：</label>

@@ -512,12 +512,13 @@ export class Player {
     }
   }
 
-  handlePlayerMoveEnd(centerPoint: Point) {
+  handlePlayerMoveEnd(centerPoint: Point, direction: Direction) {
     if(this.isFallingDown) return
     this.isMoving = false
     this.centerPoint = centerPoint
+    this.direction = direction
 
-    console.log('PlayerMoveEnd', centerPoint.x, centerPoint.y)
+    console.log('PlayerMoveEnd', centerPoint.x, centerPoint.y, direction)
 
     // 更新player position data
     this.updatePlayerPositionData()
@@ -734,8 +735,10 @@ export class Player {
   }
 
   playerFires() {
+    // lock
     if(this.msgHandler.getIsDrawingBomb()) return
     this.msgHandler.setIsDrawingBomb(true)
+
     this.drawBomb()
   }
 
@@ -871,8 +874,6 @@ export class Player {
     }
 
     // --- begin to fire
-    bomb.firingTime = +new Date()
-
     console.log('bomb', bomb)
 
     this.msgHandler.syncBombDataBeforePlayerFires(this.bombsData)
@@ -880,13 +881,12 @@ export class Player {
 
   drawBomb() {
     if(this.bombsData.length === 0 && this.numberOfFires === 0) {
+        console.log('firing over')
         this.msgHandler.setIsDrawingBomb(false)
 
-        // 重置 this.firingPower
         this.msgHandler.resetActivePlayerFiringPower()
 
-        // nextTurn?
-        this.msgHandler.startNextTurn()
+        this.msgHandler.startNextTurn() 
         return
     }
 
@@ -894,14 +894,26 @@ export class Player {
 
     this.bombCanvas.ctx.clearRect(0, 0, this.bombCanvas.el.width, this.bombCanvas.el.height)
 
+    const now = +new Date()
+
     for(let i = 0; i < this.bombsData.length; i++) {
         const bomb = this.bombsData[i]
-        const elapsedMs = +new Date() - bomb.firingTime
+
+        if(bomb.firingTime === -1) {
+            bomb.firingTime = now
+        }
+        // 从该bomb发射 经过的时间
+        const elapsedMs = now - bomb.firingTime
+
+        // console.log(`bomb${i + 1} elapsedMs ${elapsedMs}`)
 
         if(elapsedMs >= bomb.bombSec * 1000) {
+            
             // weaponCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
             // 该bomb不应该再被渲染到画布上了
             this.bombsData = this.bombsData.filter(item => item !== bomb)
+
+            // console.log(`elapsedMs: ${elapsedMs} bombSec: ${bomb.bombSec}`)
     
             if(!bomb.isOutOfMapBoundary) {
                 const target = {

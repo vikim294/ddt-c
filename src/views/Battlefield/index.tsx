@@ -15,6 +15,7 @@ import {
   Player,
   Weapon,
 } from "../../libs/player";
+import { SOCKET_SERVER_URL } from "../../utils/conf";
 
 interface ClientPlayer {
   id: string;
@@ -26,22 +27,22 @@ const client: ClientPlayer = {
   level: navigator.userAgent.length,
 };
 
-interface InitBattlefieldData {
-  activePlayerId: string;
-  players: {
-    id: string;
-    name: string;
-    centerPoint: {
-      x: number;
-      y: number;
-    };
-    direction: Direction;
+interface PlayerData {
+  id: string;
+  name: string;
+  isOnline: boolean;
+  centerPoint: {
+    x: number;
+    y: number;
+  };
+  direction: Direction;
 
-    healthMax: number;
+  healthMax: number;
 
-    weapon: Weapon;
-  }[];
+  weapon: Weapon;
 }
+
+type PlayerSkills = 'oneMore' | 'twoMore'
 
 interface FiringData {
   activePlayerWeaponAngle: number;
@@ -72,11 +73,14 @@ const Battlefield: React.FC = () => {
   const battlefieldId = searchParams.get("battlefieldId");
 
   const [isConnected, setIsConnected] = useState(false);
-  const [initBattlefieldData, setInitBattlefieldData] =
-    useState<InitBattlefieldData>();
   const [tip, setTip] = useState("");
+  const [isNextTurnNotiVisible, setIsNextTurnNotiVisible] = useState(false);
+  const nextTurnNotiTimerRef = useRef(0)
 
+  const [isReadyToInit, setIsReadyToInit] = useState(false);
+  const [playersData, setPlayersData] = useState<PlayerData[]>([]);
   const [activePlayerId, setActivePlayerId] = useState("");
+
   const [activePlayerSkills, setActivePlayerSkills] = useState("");
 
   const mapCanvasRef = useRef(null);
@@ -200,10 +204,12 @@ const Battlefield: React.FC = () => {
     },
 
     resetActivePlayerFiringPower() {
+      // 重置 this.firingPower
       if (activePlayer.current) {
         activePlayer.current.firingPower = 0;
       }
       if (isActivePlayer()) {
+        // 更新页面状态
         setClientPlayerFiringPower(0);
       }
     },
@@ -217,7 +223,7 @@ const Battlefield: React.FC = () => {
     },
 
     startNextTurn() {
-      if (activePlayer.current?.id === client.id) {
+      if (isActivePlayer()) {
         setTimeout(() => {
           activePlayer.current!.isOperationDone = true;
           socketRef.current?.emit("startNextTurn");
@@ -236,23 +242,44 @@ const Battlefield: React.FC = () => {
       socketRef.current?.emit("joinBattlefield");
     }
 
-    function initBattlefield(data: InitBattlefieldData) {
+    function initBattlefield(data: { activePlayerId: string; players: PlayerData[] }) {
       // 初始化
       console.log("initBattlefield data:", data);
-      setInitBattlefieldData(data);
+
+      setIsReadyToInit(true)
+      setActivePlayerId(data.activePlayerId);
+      setPlayersData(data.players);
     }
 
-    function playerReconnectsBattlefield(playerId: string) {
-      console.log(`playerReconnectsBattlefield: ${playerId}`);
-      if (client.id === playerId) {
+    function playerReconnectsBattlefield(data: { reconnectionPlayerId: string, activePlayerId: string; players: PlayerData[] }) {
+      const {
+        reconnectionPlayerId,
+        activePlayerId,
+        players,
+      } = data;
+
+      console.log(`playerReconnectsBattlefield: ${reconnectionPlayerId}`);
+      console.log('playersData', players);
+      if (client.id === reconnectionPlayerId) {
         // 如果当前client 是 重连的player
         // 同步最新数据
-        console.log("同步最新数据");
+        console.log("同步最新数据"); 
+        setIsReadyToInit(true)
+        setActivePlayerId(activePlayerId);
+        setPlayersData(players);
       }
-      else {
-        // 更新player的在线状态
-        console.log(`更新player的在线状态: ${playerId}`);
-      }
+
+      // 更新player的在线状态
+      console.log(`更新player ${reconnectionPlayerId} 的在线状态`);
+
+      setPlayersData((prev) => {
+        return prev.map((item) => {
+          if (item.id === reconnectionPlayerId) {
+            item.isOnline = true;
+          }
+          return item;
+        });
+      });
     }
 
     function disconnect(reason: string) {
@@ -277,7 +304,7 @@ const Battlefield: React.FC = () => {
     // handleConnect
     const handleConnect = () => {
       // socketRef.current = io("http://172.20.10.3:3000", {
-      socketRef.current = io("http://192.168.1.107:3000/battlefield", {
+      socketRef.current = io(`${SOCKET_SERVER_URL}/battlefield`, {
         auth: {
           token: client.id,
         },
@@ -342,21 +369,30 @@ const Battlefield: React.FC = () => {
     }
 
     function onKeydown(ev: KeyboardEvent) {
-      ev.preventDefault();
       // console.log(ev)
 
       if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+
         // 如果 clientPlayer 现在不是 activePlayer，则返回
         if (!isActivePlayer()) return;
         handlePlayerMove("right");
       } else if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+
         if (!isActivePlayer()) return;
         handlePlayerMove("left");
       } else if (ev.key === "ArrowUp") {
+        ev.preventDefault();
+
         adjustWeaponAngle("up");
       } else if (ev.key === "ArrowDown") {
+        ev.preventDefault();
+
         adjustWeaponAngle("down");
       } else if (ev.key === " ") {
+        ev.preventDefault();
+
         // 蓄力
         if (!isActivePlayer()) return;
         if (!isActivePlayerOperationDone()) return;
@@ -365,19 +401,24 @@ const Battlefield: React.FC = () => {
     }
 
     function onKeyup(ev: KeyboardEvent) {
-      ev.preventDefault();
       // console.log(ev)
 
       if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+        ev.preventDefault();
+
         if (!isActivePlayer()) return;
 
         // 移动结束后，同步player的位置
         const centerPoint = activePlayer.current?.centerPoint;
+        const direction = activePlayer.current?.direction;
         socketRef.current?.emit(
           "activePlayerMoveEnd",
-          centerPoint
+          centerPoint,
+          direction
         );
       } else if (ev.key === " ") {
+        ev.preventDefault();
+
         // 如果 clientPlayer 现在不是 activePlayer，则返回
         if (!isActivePlayer()) return;
         if (!isActivePlayerOperationDone()) return;
@@ -388,7 +429,8 @@ const Battlefield: React.FC = () => {
         socketRef.current?.emit("activePlayerFire", {
           activePlayerWeaponAngle: activePlayer.current!.weaponAngle,
           activePlayerFiringPower: activePlayer.current!.firingPower,
-          activePlayerNumberOfFires: activePlayer.current!.numberOfFires,
+
+          // TODO 放在 playerUsesSkill 中
           activePlayerIsTrident: activePlayer.current!.isTrident,
         });
       }
@@ -400,10 +442,23 @@ const Battlefield: React.FC = () => {
 
     function playerOffline(playerId: string) {
       console.info(`playerOffline: ${playerId}`);
+
+      setPlayersData((prev) => {
+        return prev.map((item) => {
+          if (item.id === playerId) {
+            item.isOnline = false;
+          }
+          return item;
+        });
+      });
     }
 
     function playerLeaveGame(playerId: string) {
       console.info(`playerLeaveGame: ${playerId}`);
+
+      setPlayersData((prev) => {
+        return prev.filter((item) => item.id !== playerId);
+      });
     }
 
     function activePlayerMove(direction: Direction) {
@@ -412,14 +467,31 @@ const Battlefield: React.FC = () => {
       activePlayer.current.handlePlayerMove(direction);
     }
 
-    function activePlayerMoveEnd(centerPoint: Point) {
+    function activePlayerMoveEnd(centerPoint: Point, direction: Direction) {
       if (!activePlayer.current) return;
-      activePlayer.current.handlePlayerMoveEnd(centerPoint);
+      activePlayer.current.handlePlayerMoveEnd(centerPoint, direction);
     }
 
     function activePlayerFall(centerPoint: Point) {
       if (!activePlayer.current) return;
       activePlayer.current.playerFall(centerPoint);
+    }
+
+    function playerUsesSkill(skill: PlayerSkills) {
+      if(!activePlayer.current) return
+      switch (skill) {
+        case 'oneMore': {
+          activePlayer.current.numberOfFires++;
+          setActivePlayerSkills((value) => value + "+1");
+    
+          break;
+        }
+        case 'twoMore': {
+          break;
+        }
+        default:
+          break;
+      }
     }
 
     function activePlayerFire(firingData: FiringData) {
@@ -429,12 +501,10 @@ const Battlefield: React.FC = () => {
         activePlayerWeaponAngle,
         activePlayerFiringPower,
         activePlayerIsTrident,
-        activePlayerNumberOfFires,
       } = firingData;
       activePlayer.current.weaponAngle = activePlayerWeaponAngle;
       activePlayer.current.firingPower = activePlayerFiringPower;
       activePlayer.current.isTrident = activePlayerIsTrident;
-      activePlayer.current.numberOfFires = activePlayerNumberOfFires;
 
       if (activePlayer.current.isTrident) {
         activePlayer.current.playerStartToFireTrident();
@@ -459,14 +529,25 @@ const Battlefield: React.FC = () => {
       }
     }
 
+    // 同步 clients的 activePlayer的 bombsData数据
     function syncBombDataBeforePlayerFires(bombsData: Bomb[]) {
       if (!activePlayer.current) return;
-      // 同步 clients的 activePlayer的 bombsData数据
       console.log("bombsData", bombsData);
-      activePlayer.current.bombsData = bombsData;
+
+      bombsData.forEach(bomb => {
+        // 注意 不能覆盖 clients之前就已经存在的那些bomb对象，因为不同设备的时间 不一定完全相同，所以bomb对象的firingTime 由设备自己决定
+        if(activePlayer.current!.bombsData.find(_bomb => _bomb.id === bomb.id)) {
+          return
+        }
+        else {
+          activePlayer.current!.bombsData.push(bomb)
+        }
+      })
+      
       // fire
       activePlayer.current.numberOfFires--;
       activePlayer.current.playerFires();
+
       // 如果当前 client是 activePlayer，则检查发射次数
       if (isActivePlayer()) {
         activePlayer.current.checkPlayerNumberOfFires();
@@ -474,11 +555,12 @@ const Battlefield: React.FC = () => {
     }
 
     function startNextTurn(nextTurnData: { activePlayerId: string }) {
-      alert(
+      console.log(
         `startNextTurn 轮到 activePlayer: ${nextTurnData.activePlayerId} 出手了`
       );
       setActivePlayerId(nextTurnData.activePlayerId);
       setActivePlayerSkills("");
+      setIsNextTurnNotiVisible(true)
 
       activePlayer.current = playerRefs.current.find(
         (player) => player.id === nextTurnData.activePlayerId
@@ -495,7 +577,7 @@ const Battlefield: React.FC = () => {
       });
     }
 
-    if (initBattlefieldData) {
+    if (isReadyToInit) {
       if (
         !mapCanvasRef.current ||
         !inactiveCanvasRef.current ||
@@ -541,11 +623,7 @@ const Battlefield: React.FC = () => {
         height: 1080,
       });
 
-      const { activePlayerId, players } = initBattlefieldData;
-
-      setActivePlayerId(activePlayerId);
-
-      players.forEach((item) => {
+      playersData.forEach((item) => {
         const {
           id,
           name,
@@ -613,12 +691,15 @@ const Battlefield: React.FC = () => {
         player.drawPlayer();
       });
 
+      setIsNextTurnNotiVisible(true)
+
       //
       socketRef.current?.on("playerOffline", playerOffline);
       socketRef.current?.on("playerLeaveGame", playerLeaveGame);
       socketRef.current?.on("activePlayerMove", activePlayerMove);
       socketRef.current?.on("activePlayerMoveEnd", activePlayerMoveEnd);
       socketRef.current?.on("activePlayerFall", activePlayerFall);
+      socketRef.current?.on("playerUsesSkill", playerUsesSkill);
       socketRef.current?.on("activePlayerFire", activePlayerFire);
       socketRef.current?.on(
         "syncBombDataBeforePlayerFires",
@@ -638,6 +719,7 @@ const Battlefield: React.FC = () => {
       socketRef.current?.off("activePlayerMoveEnd", activePlayerMoveEnd);
       socketRef.current?.off("activePlayerFall", activePlayerFall);
       socketRef.current?.off("activePlayerFire", activePlayerFire);
+      socketRef.current?.off("playerUsesSkill", playerUsesSkill);
       socketRef.current?.off(
         "syncBombDataBeforePlayerFires",
         syncBombDataBeforePlayerFires
@@ -648,7 +730,20 @@ const Battlefield: React.FC = () => {
       document.body.removeEventListener("keydown", onKeydown);
       document.body.removeEventListener("keyup", onKeyup);
     };
-  }, [initBattlefieldData]);
+  }, [isReadyToInit]);
+
+  useEffect(()=>{
+    if(isNextTurnNotiVisible) {
+      nextTurnNotiTimerRef.current = setTimeout(()=>{
+        setIsNextTurnNotiVisible(false)
+        clearTimeout(nextTurnNotiTimerRef.current)
+      }, 1500)
+    }
+
+    return ()=>{
+      clearTimeout(nextTurnNotiTimerRef.current)
+    }
+  }, [isNextTurnNotiVisible])
 
   const handleDisconnect = () => {
     console.log("handleDisconnect");
@@ -664,7 +759,7 @@ const Battlefield: React.FC = () => {
 
   return (
     <div id="battle-field">
-      {!initBattlefieldData ? (
+      {!isReadyToInit ? (
         <LoadingMask />
       ) : (
         <div id="content">
@@ -680,7 +775,7 @@ const Battlefield: React.FC = () => {
                 isConnected: {isConnected && "connected!"}
               </div>
               <div className="item">
-                {initBattlefieldData && "gameStarted!"}
+                {isReadyToInit && "gameStarted!"}
               </div>
               <div className="item">playerId: {clientPlayerId}</div>
               <div className="item">playerName: {clientPlayerName}</div>
@@ -696,6 +791,19 @@ const Battlefield: React.FC = () => {
                 <button onClick={handleDisconnect}>disconnect</button>
               </div>
             </div>
+            <div className="center">
+              {
+                playersData.map((item) => {
+                  return (
+                    <div className="item" key={item.id} style={{ color: item.isOnline ? "green" : "black" }}>
+                      { activePlayerId === item.id && '['}
+                      {item.name}
+                      { activePlayerId === item.id && ']'}
+                      </div>
+                  );
+                })
+              }
+            </div>
             <div className="right">
               <div className="item">activePlayerId: {activePlayerId}</div>
               <div className="item">skills: {activePlayerSkills}</div>
@@ -704,8 +812,7 @@ const Battlefield: React.FC = () => {
                   onClick={() => {
                     if (!isActivePlayer()) return;
                     if (!isActivePlayerOperationDone()) return;
-                    activePlayer.current!.numberOfFires++;
-                    setActivePlayerSkills((value) => value + "+1");
+                    socketRef.current?.emit('playerUsesSkill', activePlayer.current?.id, 'oneMore')
                   }}
                 >
                   +1
@@ -721,7 +828,7 @@ const Battlefield: React.FC = () => {
                   III
                 </button>
               </div>
-              <div className="item">
+              {/* <div className="item">
                 <button
                   onClick={() => {
                     adjustWeaponAngle("up");
@@ -783,7 +890,7 @@ const Battlefield: React.FC = () => {
                 >
                   fire
                 </button>
-              </div>
+              </div>  */}
             </div>
             <div>
               {/* <button onClick={() => {
@@ -804,6 +911,7 @@ const Battlefield: React.FC = () => {
             </div>
           </div>
           {tip && <Tip tip={tip} />}
+          {isNextTurnNotiVisible && <NextTurnNoti activePlayerName={activePlayer.current?.name} />}
         </div>
       )}
     </div>
@@ -831,6 +939,25 @@ const Tip = (props: TipProps) => {
       <div className="tip-content">
         <div>{tip}</div>
       </div>
+    </div>
+  );
+}
+
+interface NextTurnNotiProps {
+  activePlayerName?: string;
+}
+
+
+const NextTurnNoti = (props: NextTurnNotiProps) => {
+  const { activePlayerName } = props;
+
+  if(!activePlayerName) {
+    return null
+  }
+
+  return (
+    <div id="next-turn-noti">
+        轮到 <span>{activePlayerName}</span> 出手了
     </div>
   );
 }

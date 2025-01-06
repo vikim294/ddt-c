@@ -24,7 +24,16 @@
     left: 0;
     z-index: 999;
   }
-  
+
+  #ui-container .center {
+    position: fixed;
+    left: 50%;
+    z-index: 999;
+    transform: translate(-50%, 0);
+    display: flex;
+    gap: 0 10px;
+  }
+
   #ui-container .right {
     position: fixed;
     right: 0;
@@ -57,4 +66,12 @@
     transform: translate(-50%, -50%);
     z-index: 1001;
     color: #fff;
+  }
+
+  #next-turn-noti {
+    position: fixed;
+    top: 100px;
+    left: 50%;
+    transform: translate(-50%, 0);
+    z-index: 999;
   }
