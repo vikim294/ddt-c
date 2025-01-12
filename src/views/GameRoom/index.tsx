@@ -186,9 +186,9 @@ const GameRoom: React.FC = () => {
       </div>
       {matchedPlayers.length === 0 && (
         <div className="operation">
-          <button onClick={toggleMatching}>
+          <div onClick={toggleMatching} style={{display: 'block', padding: 10, backgroundColor: '#ccc', cursor: 'pointer'}}>
             {isMatching ? "取消匹配" : "开始匹配"}
-          </button>
+          </div>
         </div>
       )}
     </div>

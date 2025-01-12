@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { useState } from "react";
 import { io, Socket } from "socket.io-client";
-import "./index.css";
+import "./index.scss";
 import { Canvas, MapCanvas, Point } from "../../libs/canvas";
 import { MULTIPLE } from "../../assets/maps";
 import {
@@ -55,9 +55,9 @@ export interface MsgHandler {
   getClientPlayerId: () => string;
   isActivePlayer: (playerId: string) => boolean;
   onPlayerFall: () => void;
-  syncBombDataBeforePlayerFires: (bombsData: Bomb[]) => void;
+  syncBombDataBeforePlayerFires: (bombsData: Bomb[], isTrident?: boolean) => void;
   checkBombEffect: (bombTarget: BombTarget) => void;
-  setActivePlayerFiringAngle: (angle: number) => void;
+  setActivePlayerAngle: (angle: number) => void;
   resetActivePlayerFiringPower: () => void;
   getIsDrawingBomb: () => boolean;
   setIsDrawingBomb: (isDrawingBomb: boolean) => void;
@@ -95,18 +95,11 @@ const Battlefield: React.FC = () => {
   const bombCanvasRef = useRef(null);
   const bombCanvas = useRef<Canvas>();
 
-  const bombDrawingOffscreenCanvasRef = useRef(
-    document.createElement("canvas")
-  );
-  const bombDrawingOffscreenCanvas = useRef<Canvas>(
-    new Canvas({
-      el: bombDrawingOffscreenCanvasRef.current,
-      width: 1920,
-      height: 1080,
-      willReadFrequently: true,
-    })
-  );
+  const bombDrawingOffscreenCanvas = useRef<Canvas>();
   const isDrawingBombRef = useRef(false);
+
+  const testCanvasRef = useRef(null);
+  const testCanvas = useRef<Canvas>();
 
   const playerRefs = useRef<Player[]>([]);
   const activePlayer = useRef<Player>();
@@ -185,8 +178,8 @@ const Battlefield: React.FC = () => {
       );
     },
 
-    syncBombDataBeforePlayerFires(bombsData: Bomb[]) {
-      socketRef.current?.emit("syncBombDataBeforePlayerFires", bombsData);
+    syncBombDataBeforePlayerFires(bombsData: Bomb[], isTrident?: boolean) {
+      socketRef.current?.emit("syncBombDataBeforePlayerFires", bombsData, isTrident);
     },
 
     checkBombEffect(bombTarget: BombTarget) {
@@ -195,7 +188,7 @@ const Battlefield: React.FC = () => {
       });
     },
 
-    setActivePlayerFiringAngle(angle: number) {
+    setActivePlayerAngle(angle: number) {
       // 如果当前clientPlayer 是 activePlayer
       if (clientPlayer.current?.id === activePlayer.current?.id) {
         // 更新 angle状态
@@ -225,7 +218,6 @@ const Battlefield: React.FC = () => {
     startNextTurn() {
       if (isActivePlayer()) {
         setTimeout(() => {
-          activePlayer.current!.isOperationDone = true;
           socketRef.current?.emit("startNextTurn");
         }, 2000);
       }
@@ -376,18 +368,28 @@ const Battlefield: React.FC = () => {
 
         // 如果 clientPlayer 现在不是 activePlayer，则返回
         if (!isActivePlayer()) return;
+        if (!isActivePlayerOperationDone()) return;
+
         handlePlayerMove("right");
       } else if (ev.key === "ArrowLeft") {
         ev.preventDefault();
 
         if (!isActivePlayer()) return;
+        if (!isActivePlayerOperationDone()) return;
+
         handlePlayerMove("left");
       } else if (ev.key === "ArrowUp") {
         ev.preventDefault();
 
+        if (!isActivePlayer()) return;
+        if (!isActivePlayerOperationDone()) return;
+
         adjustWeaponAngle("up");
       } else if (ev.key === "ArrowDown") {
         ev.preventDefault();
+
+        if (!isActivePlayer()) return;
+        if (!isActivePlayerOperationDone()) return;
 
         adjustWeaponAngle("down");
       } else if (ev.key === " ") {
@@ -396,6 +398,7 @@ const Battlefield: React.FC = () => {
         // 蓄力
         if (!isActivePlayer()) return;
         if (!isActivePlayerOperationDone()) return;
+
         adjustFiringPower();
       }
     }
@@ -407,6 +410,7 @@ const Battlefield: React.FC = () => {
         ev.preventDefault();
 
         if (!isActivePlayer()) return;
+        if (!isActivePlayerOperationDone()) return;
 
         // 移动结束后，同步player的位置
         const centerPoint = activePlayer.current?.centerPoint;
@@ -417,6 +421,7 @@ const Battlefield: React.FC = () => {
           direction
         );
       } else if (ev.key === " ") {
+        // fire
         ev.preventDefault();
 
         // 如果 clientPlayer 现在不是 activePlayer，则返回
@@ -496,6 +501,7 @@ const Battlefield: React.FC = () => {
 
     function activePlayerFire(firingData: FiringData) {
       if (!activePlayer.current) return;
+
       // 同步 clients的 activePlayer的数据
       const {
         activePlayerWeaponAngle,
@@ -507,22 +513,48 @@ const Battlefield: React.FC = () => {
       activePlayer.current.isTrident = activePlayerIsTrident;
 
       if (activePlayer.current.isTrident) {
-        activePlayer.current.playerStartToFireTrident();
-      } else {
         if (mapCanvas.current) {
-          // 如果当前 client是 activePlayer，则准备fire
+          // 如果当前 client是 activePlayer
           if (isActivePlayer()) {
-            bombDrawingOffscreenCanvas.current.ctx.clearRect(
+            // copy地图到offscreenCanvas
+            bombDrawingOffscreenCanvas.current!.ctx.clearRect(
               0,
               0,
-              bombDrawingOffscreenCanvas.current.el.width,
-              bombDrawingOffscreenCanvas.current.el.height
+              bombDrawingOffscreenCanvas.current!.el.width,
+              bombDrawingOffscreenCanvas.current!.el.height
             );
-            bombDrawingOffscreenCanvas.current.ctx.drawImage(
+            bombDrawingOffscreenCanvas.current!.ctx.drawImage(
               mapCanvas.current.el,
               0,
               0
             );
+            // 准备fire
+            activePlayer.current.tridentBombs = []
+            activePlayer.current.playerStartToFireTrident();
+          }
+        }
+      } else {
+        if (mapCanvas.current) {
+          // 如果当前 client是 activePlayer，则准备fire
+          if (isActivePlayer()) {
+            bombDrawingOffscreenCanvas.current!.ctx.clearRect(
+              0,
+              0,
+              bombDrawingOffscreenCanvas.current!.el.width,
+              bombDrawingOffscreenCanvas.current!.el.height
+            );
+            bombDrawingOffscreenCanvas.current!.ctx.drawImage(
+              mapCanvas.current.el,
+              0,
+              0
+            );
+            bombDrawingOffscreenCanvas.current!.ctx.lineWidth = mapCanvas.current.ctx.lineWidth
+            bombDrawingOffscreenCanvas.current!.ctx.strokeStyle = mapCanvas.current.ctx.strokeStyle
+
+            activePlayer.current.firingPosition = {
+              x: activePlayer.current.centerPoint.x,
+              y: activePlayer.current.centerPoint.y - Player.BOUNDING_BOX_LENGTH
+            }
             activePlayer.current.playerStartToFire();
           }
         }
@@ -530,27 +562,55 @@ const Battlefield: React.FC = () => {
     }
 
     // 同步 clients的 activePlayer的 bombsData数据
-    function syncBombDataBeforePlayerFires(bombsData: Bomb[]) {
+    function syncBombDataBeforePlayerFires(bombData: Bomb[], isTrident: boolean) {
       if (!activePlayer.current) return;
-      console.log("bombsData", bombsData);
-
-      bombsData.forEach(bomb => {
-        // 注意 不能覆盖 clients之前就已经存在的那些bomb对象，因为不同设备的时间 不一定完全相同，所以bomb对象的firingTime 由设备自己决定
-        if(activePlayer.current!.bombsData.find(_bomb => _bomb.id === bomb.id)) {
-          return
-        }
-        else {
-          activePlayer.current!.bombsData.push(bomb)
-        }
-      })
       
-      // fire
-      activePlayer.current.numberOfFires--;
-      activePlayer.current.playerFires();
+      console.log("syncBombDataBeforePlayerFires bombData", bombData);
+      
+      if(isTrident) {
+        const tridentBombs = bombData
 
-      // 如果当前 client是 activePlayer，则检查发射次数
-      if (isActivePlayer()) {
-        activePlayer.current.checkPlayerNumberOfFires();
+        tridentBombs.forEach(bomb => {
+          // 注意 不能覆盖 clients之前就已经存在的那些bomb对象，因为不同设备的时间 不一定完全相同，所以bomb对象的firingTime 由设备自己决定
+          if(activePlayer.current!.tridentBombs.find(_bomb => _bomb.id === bomb.id)) {
+            return
+          }
+          else {
+            activePlayer.current!.tridentBombs.push(bomb)
+          }
+        })
+
+        // fire
+        activePlayer.current.numberOfFires--;
+        activePlayer.current.playerFiresTrident();
+  
+        // 如果当前 client是 activePlayer，则检查发射次数
+        if(isActivePlayer()) {
+          activePlayer.current.checkPlayerNumberOfFires(isTrident);
+        }
+
+      }
+      else {
+        const bombsData = bombData
+
+        bombsData.forEach(bomb => {
+          // 注意 不能覆盖 clients之前就已经存在的那些bomb对象，因为不同设备的时间 不一定完全相同，所以bomb对象的firingTime 由设备自己决定
+          if(activePlayer.current!.bombsData.find(_bomb => _bomb.id === bomb.id)) {
+            return
+          }
+          else {
+            activePlayer.current!.bombsData.push(bomb)
+          }
+        })
+        
+        // fire
+        activePlayer.current.numberOfFires--;
+        activePlayer.current.playerFires();
+  
+        // 如果当前 client是 activePlayer，则检查发射次数
+        if (isActivePlayer()) {
+          activePlayer.current.checkPlayerNumberOfFires();
+        }
       }
     }
 
@@ -565,9 +625,9 @@ const Battlefield: React.FC = () => {
       activePlayer.current = playerRefs.current.find(
         (player) => player.id === nextTurnData.activePlayerId
       );
-      if (!activePlayer.current) {
-        return;
-      }
+      if (!activePlayer.current) return
+      // reset
+      activePlayer.current.isOperationDone = true;
       activePlayer.current.numberOfFires = 1;
       activePlayer.current.isTrident = false;
 
@@ -582,7 +642,8 @@ const Battlefield: React.FC = () => {
         !mapCanvasRef.current ||
         !inactiveCanvasRef.current ||
         !activeCanvasRef.current ||
-        !bombCanvasRef.current
+        !bombCanvasRef.current ||
+        !testCanvasRef.current
       ) {
         console.error("canvasRef is null");
         return;
@@ -623,6 +684,22 @@ const Battlefield: React.FC = () => {
         height: 1080,
       });
 
+      bombDrawingOffscreenCanvas.current = new Canvas({
+        el: document.createElement('canvas'),
+        // width: window.innerWidth,
+        width: 1920,
+        // height: window.innerHeight,
+        height: 1080,
+      });
+
+      testCanvas.current = new Canvas({
+        el: testCanvasRef.current,
+        // width: window.innerWidth,
+        width: 1920,
+        // height: window.innerHeight,
+        height: 1080,
+      });
+
       playersData.forEach((item) => {
         const {
           id,
@@ -642,7 +719,8 @@ const Battlefield: React.FC = () => {
           inactiveCanvas: inactiveCanvas.current!,
           activeCanvas: activeCanvas.current!,
           bombCanvas: bombCanvas.current!,
-          bombDrawingOffscreenCanvas: bombDrawingOffscreenCanvas.current,
+          bombDrawingOffscreenCanvas: bombDrawingOffscreenCanvas.current!,
+          testCanvas: testCanvas.current!,
 
           id,
           name,
@@ -660,6 +738,7 @@ const Battlefield: React.FC = () => {
         if (player.id === activePlayerId) {
           // set activePlayer
           activePlayer.current = player;
+          activePlayer.current.isOperationDone = true
         }
 
         if (player.id === client.id) {
@@ -768,6 +847,7 @@ const Battlefield: React.FC = () => {
             <canvas id="inactive" ref={inactiveCanvasRef}></canvas>
             <canvas id="active" ref={activeCanvasRef}></canvas>
             <canvas id="bomb" ref={bombCanvasRef}></canvas>
+            <canvas id="test" ref={testCanvasRef}></canvas>
           </div>
           <div id="ui-container">
             <div className="left">
@@ -812,6 +892,7 @@ const Battlefield: React.FC = () => {
                   onClick={() => {
                     if (!isActivePlayer()) return;
                     if (!isActivePlayerOperationDone()) return;
+
                     socketRef.current?.emit('playerUsesSkill', activePlayer.current?.id, 'oneMore')
                   }}
                 >
@@ -821,6 +902,7 @@ const Battlefield: React.FC = () => {
                   onClick={() => {
                     if (!isActivePlayer()) return;
                     if (!isActivePlayerOperationDone()) return;
+
                     activePlayer.current!.isTrident = true;
                     setActivePlayerSkills((value) => value + "+III");
                   }}

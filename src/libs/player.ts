@@ -21,6 +21,7 @@ export interface PlayerOptions {
   activeCanvas: Canvas
   bombCanvas: Canvas
   bombDrawingOffscreenCanvas: Canvas
+  testCanvas: Canvas
 
   id: string
   name: string
@@ -38,7 +39,7 @@ export interface BombTarget {
 }
 
 export interface Bomb {
-    id: number
+    id: string
     x: number
     y: number
 
@@ -60,10 +61,6 @@ export interface Bomb {
     firingTime: number
 }
 
-export interface TridentBomb extends Bomb {
-    isBombed: boolean
-}
-
 export class Player {
   msgHandler: MsgHandler
 
@@ -72,6 +69,7 @@ export class Player {
   activeCanvas: Canvas
   bombCanvas: Canvas
   bombDrawingOffscreenCanvas: Canvas
+  testCanvas: Canvas
 
   id: string
   name: string
@@ -104,6 +102,7 @@ export class Player {
   weapon: Weapon
   weaponAngle: number
 
+  firingPosition: Point
   firingPower: number
 
   numberOfFires: number
@@ -112,7 +111,7 @@ export class Player {
   
   isOperationDone: boolean
   isTrident: boolean
-  tridentBombs: TridentBomb[]
+  tridentBombs: Bomb[]
 
   static HEALTH_BAR_WIDTH: number = 40
   static HEALTH_BAR_HEIGHT: number = 10
@@ -126,6 +125,7 @@ export class Player {
       activeCanvas,
       bombCanvas,
       bombDrawingOffscreenCanvas,
+      testCanvas,
 
       id,
       name,
@@ -144,6 +144,7 @@ export class Player {
     this.activeCanvas = activeCanvas
     this.bombCanvas = bombCanvas
     this.bombDrawingOffscreenCanvas = bombDrawingOffscreenCanvas
+    this.testCanvas = testCanvas
 
     this.id = id
     this.name = name
@@ -194,13 +195,17 @@ export class Player {
     this.weapon = weapon
     this.weaponAngle = 0
 
+    this.firingPosition = {
+        x: -1,
+        y: -1
+    }
     this.firingPower = 0
 
     this.numberOfFires = 1
     this.bombsData = []
     this.firingTime = 0
 
-    this.isOperationDone = true
+    this.isOperationDone = false
 
     this.isTrident = false
     this.tridentBombs = []
@@ -443,7 +448,7 @@ export class Player {
   }
 
   updatePlayerPositionDataOnPage() {
-    this.msgHandler.setActivePlayerFiringAngle(this.angle)
+    this.msgHandler.setActivePlayerAngle(this.angle)
   }
 
   playerSmoothlyMoves() {
@@ -529,6 +534,7 @@ export class Player {
       if(locationData) {
           this.updateLocationData(locationData)
           this.drawPlayer()
+          this.updatePlayerPositionDataOnPage()
       }
       else {
         console.log('locationData', locationData)
@@ -716,20 +722,23 @@ export class Player {
 
   // --------
   playerStartToFire() {
-    const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.el.width, this.bombDrawingOffscreenCanvas.el.height)
-
     // console.time('preCalculateBombData')
     // preCalculateBombData 耗时好像也不是很长，所以暂时不需要用web worker吧
-    this.preCalculateBombData(canvasData)
+    this.preCalculateBombData()
     // console.timeEnd('preCalculateBombData')
   }
 
-  checkPlayerNumberOfFires() {
+  checkPlayerNumberOfFires(isTrident?: boolean) {
     // 发射后，隔1s后再发射
     if(this.numberOfFires > 0) {
         const timerId = setTimeout(()=>{
             clearTimeout(timerId)
-            this.playerStartToFire()
+            if(isTrident) {
+                this.playerStartToFireTrident()
+            }
+            else {
+                this.playerStartToFire()
+            }
         }, 1000)
     }
   }
@@ -742,7 +751,10 @@ export class Player {
     this.drawBomb()
   }
 
-  preCalculateBombData(canvasData: Uint8ClampedArray) {
+  preCalculateBombData() {
+    console.log('preCalculateBombData')
+    const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.el.width, this.bombDrawingOffscreenCanvas.el.height)
+
     // --- init bomb
     const firingAngle = this.angle + this.weaponAngle
     const angle = this.direction === 'right' ? firingAngle : 180 - firingAngle
@@ -757,10 +769,11 @@ export class Player {
     const v0Vertical = v0 * Math.sin(angleToRadian(angle))
 
     const bomb: Bomb = {
-        id: +new Date(),
-        x: this.centerPoint.x,
-        // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
-        y: this.centerPoint.y - Player.BOUNDING_BOX_LENGTH,
+        // id emmm
+        id: `${+new Date()}`,
+        // 固定fire的位置
+        x: this.firingPosition.x,
+        y: this.firingPosition.y,
         v0Horizontal,
         v0Vertical,
         damageRadius: 50,
@@ -792,8 +805,9 @@ export class Player {
         sec += 0.001
         sec = +sec.toFixed(3)
 
-        const x = this.centerPoint.x + _bomb.v0Horizontal * sec
-        const y = toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
+        // 固定fire的位置
+        const x = this.firingPosition.x + _bomb.v0Horizontal * sec
+        const y = toCartesianCoordinateY(this.firingPosition.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
         _bomb.x = Math.floor(x)
         _bomb.y = Math.floor(toCanvasCoordinateY(y, this.mapCanvas.el.height))
     }
@@ -808,25 +822,25 @@ export class Player {
     // getTarget
     for(let i = 0; i < bomb.track.length; i++) {
         // --- bomb角度计算
-        if(i >= 10 && i <= bomb.track.length - 11) {
-            const point1 = bomb.track[i - 10]
-            const point2 = bomb.track[i + 10]
+        // if(i >= 10 && i <= bomb.track.length - 11) {
+        //     const point1 = bomb.track[i - 10]
+        //     const point2 = bomb.track[i + 10]
 
-            const angle = this.mapCanvas.getAngleByTwoTerrainPoints(point1, point2)
-            // console.log('angle', angle)
+        //     const angle = this.mapCanvas.getAngleByTwoTerrainPoints(point1, point2)
+        //     // console.log('angle', angle)
     
-            let bombAngle = null
-            if(this.direction === 'right') {
-                // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
-                bombAngle = -angle
-            }
-            else {
-                // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
-                bombAngle = 180 + -angle
-            }
+        //     let bombAngle = null
+        //     if(this.direction === 'right') {
+        //         // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
+        //         bombAngle = -angle
+        //     }
+        //     else {
+        //         // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
+        //         bombAngle = 180 + -angle
+        //     }
     
-            bomb.track[i].bombAngle = bombAngle
-        }
+        //     bomb.track[i].bombAngle = bombAngle
+        // }
 
         if(bomb.bombSec === -1) {
             const {
@@ -852,18 +866,24 @@ export class Player {
                 bomb.bombSec = sec
     
                 // 在离屏canvas上 bombTarget 
+                // console.log('在离屏canvas上 bombTarget')
+
                 this.bombTarget({
                     x,
                     y,
                     damageRadius: bomb.damageRadius
                 }, this.bombDrawingOffscreenCanvas.ctx)
 
+
+                // this.testCanvas.ctx.clearRect(0, 0, this.testCanvas.el.width, this.testCanvas.el.height)
+                // this.testCanvas.ctx.drawImage(this.bombDrawingOffscreenCanvas.el, 0, 0)
+                // this.testCanvas.drawTrack(bomb.track)
             }
         }
     }
 
     if(bomb.bombSec === -1) {
-        console.log('out of map boundary', bomb)
+        console.log('out of map boundary:', bomb.id)
         const {
             x, y
         } = bomb.track[bomb.track.length - 1]
@@ -875,7 +895,7 @@ export class Player {
 
     // --- begin to fire
     console.log('bomb', bomb)
-
+    
     this.msgHandler.syncBombDataBeforePlayerFires(this.bombsData)
   } 
 
@@ -923,6 +943,7 @@ export class Player {
                     bombAngle: bomb.track[elapsedMs].bombAngle
                 }
                 this.bombTarget(target, this.mapCanvas.ctx)
+
                 // bomb 对 players的effect
                 this.msgHandler.checkBombEffect(target)
             }
@@ -964,78 +985,28 @@ export class Player {
   }
 
   playerStartToFireTrident() {
-    const firingAngle = this.angle + this.weaponAngle
-    const angle = this.direction === 'right' ? firingAngle : 180 - firingAngle
-    const power = this.firingPower
-    const v0 = power * 10
-
-    this.tridentBombs = []
-    for(let i = 0; i < 3; i++) {
-        let newAngle = angle
-        if(i === 0) {
-            newAngle -= TRIDENT_ANGLE_DIFFERENCE
-        }
-        else if(i === 2) {
-            newAngle += TRIDENT_ANGLE_DIFFERENCE
-        }
-
-        const bomb: TridentBomb = {
-            id: +new Date(),
-            // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
-            x: this.centerPoint.x,
-            y: this.centerPoint.y - Player.BOUNDING_BOX_LENGTH,
-    
-            v0Horizontal: v0 * Math.cos(angleToRadian(newAngle)),
-            v0Vertical: v0 * Math.sin(angleToRadian(newAngle)),
-    
-            damageRadius: 50,
-            track: [],
-
-            isBombed: false,
-
-            targetX: -1,
-            targetY: -1,
-            bombSec: -1,
-            isOutOfMapBoundary: false,
-            firingTime: -1,
-        }
-    
-        this.tridentBombs.push(bomb)
-    }
-
-
-    this.playerFiresTrident()
+    this.preCalculateTridentData()
   }
 
+
   playerFiresTrident() {
-    this.numberOfFires--
+    // lock
+    if(this.msgHandler.getIsDrawingBomb()) return
+    this.msgHandler.setIsDrawingBomb(true)
 
-    this.preCalculateTridentData()
-
-    this.firingTime = +new Date()
     this.drawTrident()
   }
 
   preCalculateTridentData() {
-    const offscreenMapCanvasEl = document.createElement('canvas')
-    offscreenMapCanvasEl.width = this.mapCanvas.el.width
-    offscreenMapCanvasEl.height = this.mapCanvas.el.height
-    const offscreenCtx = offscreenMapCanvasEl.getContext('2d', {
-        willReadFrequently: true
-    })
+    const preCalculateData = (bomb: Bomb) => {
+        const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.el.width, this.bombDrawingOffscreenCanvas.el.height)
 
-    if(!offscreenCtx) return
-
-    // 复制 map到 offscreenMap
-    offscreenCtx.drawImage(this.mapCanvas.el, 0, 0)
-
-    for(let i = 0; i < 3; i++) {
-        const bomb = this.tridentBombs[i]
         let sec = 0
         const _bomb = {
             ...bomb
         }
 
+        // --- calculate track
         const track = []
         while(!pointOutOfMap(_bomb, this.mapCanvas.el.width, this.mapCanvas.el.height)) {
             // console.log('preCalculate')
@@ -1045,7 +1016,9 @@ export class Player {
                 sec
             })
 
-            sec += 0.004
+            sec += 0.001
+            sec = +sec.toFixed(3)
+
             const x = this.centerPoint.x + _bomb.v0Horizontal * sec
             const y = toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
             _bomb.x = Math.floor(x)
@@ -1057,84 +1030,160 @@ export class Player {
 
         // drawTrack(track)
 
-        // getTarget
-        let isBombOutOfMapBoundary = true
-        for(const point of track) {
-            const {
-                x, y, sec
-            } = point
-            const { data } = offscreenCtx.getImageData(x, y, 1, 1)
-            const r = data[0]
-            const g = data[1]
-            const b = data[2]
-            // console.log('x, y', x, y, 'r, g, b', r, g, b)
+        bomb.track = track
 
-            if(!(r === 0 && g === 0 && b === 0)) {
-                bomb.targetX = x
-                bomb.targetY = y
-                bomb.bombSec = sec
+        // --- getTarget
+        for(let i = 0; i < bomb.track.length; i++) {
+            // --- bomb角度计算
+            if(i >= 10 && i <= bomb.track.length - 11) {
+                const point1 = bomb.track[i - 10]
+                const point2 = bomb.track[i + 10]
 
-                console.log(i, bomb)
-                isBombOutOfMapBoundary = false
+                const angle = this.mapCanvas.getAngleByTwoTerrainPoints(point1, point2)
+                // console.log('angle', angle)
+        
+                let bombAngle = null
+                if(this.direction === 'right') {
+                    // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
+                    bombAngle = -angle
+                }
+                else {
+                    // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
+                    bombAngle = 180 + -angle
+                }
+        
+                bomb.track[i].bombAngle = bombAngle
+            }
 
-                // 
-                this.bombTarget({
-                    x,
-                    y,
-                    damageRadius: bomb.damageRadius
-                }, offscreenCtx)
+            // --- target
+            if(bomb.bombSec === -1) {
+                const {
+                    x, y, sec
+                } = bomb.track[i]
 
-                break
+                // 如果track上的该点 在map范围外
+                if(x < 0 || y < 0 || x >= this.bombDrawingOffscreenCanvas.el.width || y >= this.bombDrawingOffscreenCanvas.el.height) {
+                    continue
+                }
+
+                // x y 像素的数据
+                const index = (y * this.bombDrawingOffscreenCanvas.el.width + x) * 4
+                const r = canvasData[index]
+                const g = canvasData[index + 1]
+                const b = canvasData[index + 2]
+                // const a = canvasData[index + 3]
+                // console.log('x, y', x, y, 'r, g, b, a', r, g, b, a)
+        
+                if(!(r === 0 && g === 0 && b === 0)) {
+                    bomb.targetX = x
+                    bomb.targetY = y
+                    bomb.bombSec = sec
+        
+                    // 在离屏canvas上 bombTarget 
+                    this.bombTarget({
+                        x,
+                        y,
+                        damageRadius: bomb.damageRadius
+                    }, this.bombDrawingOffscreenCanvas.ctx)
+
+                }
             }
         }
 
-        if(isBombOutOfMapBoundary) {
-            console.log('bomb', i, 'out of map boundary')
+        if(bomb.bombSec === -1) {
+            console.log('out of map boundary:', bomb.id)
             const {
                 x, y
-            } = track[track.length - 1]
+            } = bomb.track[bomb.track.length - 1]
             bomb.targetX = x
             bomb.targetY = y
             bomb.bombSec = sec
             bomb.isOutOfMapBoundary = true
         }
+
+        console.log('bomb', bomb)
+
     }
+
+    // --- init bombs
+    const firingAngle = this.angle + this.weaponAngle
+    const angle = this.direction === 'right' ? firingAngle : 180 - firingAngle
+    const power = this.firingPower
+    const v0 = power * 10
+
+    for(let i = 0; i < 3; i++) {
+        let newAngle = angle
+        if(i === 0) {
+            newAngle -= TRIDENT_ANGLE_DIFFERENCE
+        }
+        else if(i === 2) {
+            newAngle += TRIDENT_ANGLE_DIFFERENCE
+        }
+
+        const bomb: Bomb = {
+            // TODO 别用时间戳
+            id: `${+new Date()}_${i}`,
+            // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
+            x: this.centerPoint.x,
+            y: this.centerPoint.y - Player.BOUNDING_BOX_LENGTH,
+    
+            v0Horizontal: v0 * Math.cos(angleToRadian(newAngle)),
+            v0Vertical: v0 * Math.sin(angleToRadian(newAngle)),
+    
+            damageRadius: 50,
+            track: [],
+
+            targetX: -1,
+            targetY: -1,
+            bombSec: -1,
+            isOutOfMapBoundary: false,
+            firingTime: -1,
+        }
+    
+        this.tridentBombs.push(bomb)
+
+        // --- preCalculate one by one
+        preCalculateData(bomb)
+    }
+
+    console.log('start to sync')
+
+    this.msgHandler.syncBombDataBeforePlayerFires(this.tridentBombs, true)
   }
 
   drawTrident() {
-    if(this.tridentBombs.every(bomb => bomb.isBombed)) {
-        // 全部bomb
-        console.log('全部bomb')
+    if(this.tridentBombs.length === 0 && this.numberOfFires === 0) {
+        // 全部bombed
+        console.log('全部bombed')
 
-        if(this.numberOfFires !== 0) {
-            // 继续发射
-            setTimeout(() => {
-                this.playerStartToFireTrident()
-            }, 2000);
-        }
-        else {
-            // 重置 this.firingPower
-            this.msgHandler.resetActivePlayerFiringPower()
-            this.msgHandler.startNextTurn()
-        }
+        this.msgHandler.setIsDrawingBomb(false)
 
+        // 重置 this.firingPower
+        this.msgHandler.resetActivePlayerFiringPower()
+
+        this.msgHandler.startNextTurn()
         return
     }
-
-    const elapsedSec = (+new Date() - this.firingTime) / 1000
 
     requestAnimationFrame(this.drawTrident.bind(this))
 
     this.bombCanvas.ctx.clearRect(0, 0, this.bombCanvas.el.width, this.bombCanvas.el.height)
+    
+    const now = +new Date()
 
-    for(let i = 0; i < 3; i++) {
+    for(let i = 0; i < this.tridentBombs.length; i++) {
         const bomb = this.tridentBombs[i]
 
-        if(bomb.isBombed) continue
+        if(bomb.firingTime === -1) {
+            bomb.firingTime = now
+        }
+
+        // 从该bomb发射 经过的时间
+        const elapsedMs = now - bomb.firingTime
 
         // 如果bomb到达了target
-        if(!bomb.isBombed && elapsedSec >= bomb.bombSec) {
-            bomb.isBombed = true
+        if(elapsedMs >= bomb.bombSec * 1000) {
+            this.tridentBombs = this.tridentBombs.filter(item => item !== bomb)
     
             if(!bomb.isOutOfMapBoundary) {
                 const target = {
@@ -1150,17 +1199,27 @@ export class Player {
             continue
         }
 
+        // --- render bomb
+        const {
+            x,
+            y,
+            // bombAngle
+        } = bomb.track[elapsedMs]
+
         this.bombCanvas.ctx.beginPath()
         this.bombCanvas.ctx.arc(bomb.x, bomb.y, 1, 0, Math.PI * 2)
         this.bombCanvas.ctx.stroke()
 
         // 计算在笛卡尔坐标系下的 x 和 y
-        const x = this.centerPoint.x + bomb.v0Horizontal * elapsedSec
+        // const x = this.centerPoint.x + bomb.v0Horizontal * elapsedSec
         // bomb从 player中心上方 PLAYER_BOUNDING_BOX_LENGTH 处发射
-        const y = toCanvasCoordinateY(toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + bomb.v0Vertical * elapsedSec + 1 / 2 * G * elapsedSec * elapsedSec, this.mapCanvas.el.height)
+        // const y = toCanvasCoordinateY(toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.mapCanvas.el.height) + bomb.v0Vertical * elapsedSec + 1 / 2 * G * elapsedSec * elapsedSec, this.mapCanvas.el.height)
         // 最终要绘制的bomb的坐标 需要用canvas的坐标系
-        bomb.x = Math.floor(x)
-        bomb.y = Math.floor(y)
+        // bomb.x = Math.floor(x)
+        // bomb.y = Math.floor(y)
+
+        bomb.x = x
+        bomb.y = y
     }
   }
 
@@ -1169,39 +1228,39 @@ export class Player {
     offscreenCanvas.width = this.mapCanvas.el.width
     offscreenCanvas.height = this.mapCanvas.el.height
     const offscreenCanvasCtx = offscreenCanvas.getContext('2d')!
-    offscreenCanvasCtx.lineWidth = ctx.lineWidth
+    offscreenCanvasCtx.lineWidth = this.mapCanvas.ctx.lineWidth
 
     // 先fill => 再stroke(destination-out) -> 得到 【内部填充】
-    // offscreenCanvasCtx.beginPath()
-    // offscreenCanvasCtx.arc(x, y, damageRadius, 0, Math.PI * 2)
-    offscreenCanvasCtx.save()
-    offscreenCanvasCtx.translate(x - damageRadius, y - damageRadius)
-
-    setCtxPathByMap(offscreenCanvasCtx, SHELL_CRATER_50_round)
+    offscreenCanvasCtx.beginPath()
+    offscreenCanvasCtx.arc(x, y, damageRadius, 0, Math.PI * 2)
+    // offscreenCanvasCtx.save()
+    
+    // offscreenCanvasCtx.translate(x - damageRadius, y - damageRadius)
+    // setCtxPathByMap(offscreenCanvasCtx, SHELL_CRATER_50_round)
     offscreenCanvasCtx.fill()
 
     offscreenCanvasCtx.globalCompositeOperation = 'destination-out'
     offscreenCanvasCtx.stroke()
 
-    offscreenCanvasCtx.restore()
+    // offscreenCanvasCtx.restore()
 
     // 然后将offscreenCanvas 以destination-out的方式，绘制到 mapCanvas上
+    ctx.save()
+
     ctx.globalCompositeOperation = 'destination-out'
     ctx.drawImage(offscreenCanvas, 0, 0)
 
     // 最后绘制描边
-    // ctx.beginPath()
+    ctx.beginPath()
+    ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
     ctx.globalCompositeOperation = 'source-atop'
-    // ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
 
-    this.mapCanvas.ctx.save()
 
-    this.mapCanvas.ctx.translate(x - damageRadius, y - damageRadius)
-
-    setCtxPathByMap(ctx, SHELL_CRATER_50_round)
+    // ctx.translate(x - damageRadius, y - damageRadius)
+    // setCtxPathByMap(ctx, SHELL_CRATER_50_round)
     ctx.stroke()
 
-    this.mapCanvas.ctx.restore()
+    ctx.restore()
   }
 }
 
@@ -1212,13 +1271,13 @@ export function checkBombEffect(bombTarget: BombTarget, player: Player) {
         damageRadius
     } = bombTarget
 
-    // 对 active player的影响
-    // 判断爆炸点 和 player2中心 的距离 是否 <= damageRadius
-    const d1 = getDistanceBetweenTwoPoints({
+    // 对player的影响
+    // 判断爆炸点 和 player中心 的距离 是否 <= damageRadius
+    const d = getDistanceBetweenTwoPoints({
         x,
         y
     }, player.centerPoint)
-    if(d1 <= damageRadius) {
+    if(d <= damageRadius) {
         console.log(`player ${player.id} gets hurt!`)
         // player hp 计算
         const newHealth = player.health - player.weapon.damage
