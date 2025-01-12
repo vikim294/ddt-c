@@ -82,6 +82,8 @@ const Battlefield: React.FC = () => {
   const [activePlayerId, setActivePlayerId] = useState("");
 
   const [activePlayerSkills, setActivePlayerSkills] = useState("");
+  const [isOperationDone, setIsOperationDone] = useState(false);
+
 
   const mapCanvasRef = useRef(null);
   const mapCanvas = useRef<MapCanvas>();
@@ -161,6 +163,14 @@ const Battlefield: React.FC = () => {
   function isActivePlayerOperationDone() {
     return activePlayer.current!.isOperationDone;
   }
+
+  const setActivePlayerIsOperationDone = (isOperationDone: boolean) => {
+    if(!activePlayer.current) return
+    activePlayer.current.isOperationDone = isOperationDone;
+    if(isActivePlayer()) {
+      setIsOperationDone(isOperationDone)
+    }
+  } 
 
   const msgHandler = useRef({
     getClientPlayerId() {
@@ -427,7 +437,7 @@ const Battlefield: React.FC = () => {
         // 如果 clientPlayer 现在不是 activePlayer，则返回
         if (!isActivePlayer()) return;
         if (!isActivePlayerOperationDone()) return;
-        activePlayer.current!.isOperationDone = false;
+        setActivePlayerIsOperationDone(false)
 
         // fire时，把activePlayer的当前相关数据 传给server，
         // 然后server再发给其他player，更新其客户端activePlayer的数据
@@ -627,7 +637,7 @@ const Battlefield: React.FC = () => {
       );
       if (!activePlayer.current) return
       // reset
-      activePlayer.current.isOperationDone = true;
+      setActivePlayerIsOperationDone(true)
       activePlayer.current.numberOfFires = 1;
       activePlayer.current.isTrident = false;
 
@@ -738,7 +748,7 @@ const Battlefield: React.FC = () => {
         if (player.id === activePlayerId) {
           // set activePlayer
           activePlayer.current = player;
-          activePlayer.current.isOperationDone = true
+
         }
 
         if (player.id === client.id) {
@@ -771,6 +781,7 @@ const Battlefield: React.FC = () => {
       });
 
       setIsNextTurnNotiVisible(true)
+      setActivePlayerIsOperationDone(true)
 
       //
       socketRef.current?.on("playerOffline", playerOffline);
@@ -831,6 +842,12 @@ const Battlefield: React.FC = () => {
     navigate("/gameRoom");
   };
 
+  const handleSkipAction = () => {
+    if (!isActivePlayer()) return;
+
+    socketRef.current?.emit("startNextTurn");
+  }
+
   // clientPlayerFiringAngle
   const clientPlayerFiringAngle = clientPlayerAngle + clientPlayerWeaponAngle;
 
@@ -872,16 +889,24 @@ const Battlefield: React.FC = () => {
               </div>
             </div>
             <div className="center">
+              <div className="player-profiles">
+                {
+                  playersData.map((item) => {
+                    return (
+                      <div className="item" key={item.id} style={{ color: item.isOnline ? "green" : "black" }}>
+                        { activePlayerId === item.id && '['}
+                        {item.name}
+                        { activePlayerId === item.id && ']'}
+                        </div>
+                    );
+                  })
+                }
+              </div>
               {
-                playersData.map((item) => {
-                  return (
-                    <div className="item" key={item.id} style={{ color: item.isOnline ? "green" : "black" }}>
-                      { activePlayerId === item.id && '['}
-                      {item.name}
-                      { activePlayerId === item.id && ']'}
-                      </div>
-                  );
-                })
+                activePlayerId === clientPlayer.current?.id && isOperationDone &&
+                (<div className="action-countdown">
+                  <div className="skip" onClick={handleSkipAction}>跳过</div>
+                </div>)
               }
             </div>
             <div className="right">
