@@ -5,8 +5,8 @@ import { useEffect, useRef } from "react";
 import { useState } from "react";
 import { io, Socket } from "socket.io-client";
 import "./index.scss";
-import { Canvas, MapCanvas, Point } from "../../libs/canvas";
-import { MULTIPLE } from "../../assets/maps";
+import { DisplayedCanvas, LogicalCanvas, Point } from "../../libs/canvas";
+import { MULTIPLE, MULTIPLE_SIMPLE } from "../../assets/maps";
 import {
   Bomb,
   BombTarget,
@@ -16,6 +16,8 @@ import {
   Weapon,
 } from "../../libs/player";
 import { SOCKET_SERVER_URL } from "../../utils/conf";
+
+import bombImage from "../../assets/bomb.png"
 
 interface ClientPlayer {
   id: string;
@@ -56,6 +58,7 @@ export interface MsgHandler {
   isActivePlayer: (playerId: string) => boolean;
   onPlayerFall: () => void;
   syncBombDataBeforePlayerFires: (bombsData: Bomb[], isTrident?: boolean) => void;
+  syncWithLogicalMapCanvas: () => void;
   checkBombEffect: (bombTarget: BombTarget) => void;
   setActivePlayerAngle: (angle: number) => void;
   resetActivePlayerFiringPower: () => void;
@@ -84,24 +87,25 @@ const Battlefield: React.FC = () => {
   const [activePlayerSkills, setActivePlayerSkills] = useState("");
   const [isOperationDone, setIsOperationDone] = useState(false);
 
+  const logicalMapCanvas = useRef<LogicalCanvas>();
 
   const mapCanvasRef = useRef(null);
-  const mapCanvas = useRef<MapCanvas>();
+  const mapCanvas = useRef<DisplayedCanvas>();
 
   const inactiveCanvasRef = useRef(null);
-  const inactiveCanvas = useRef<Canvas>();
+  const inactiveCanvas = useRef<DisplayedCanvas>();
 
   const activeCanvasRef = useRef(null);
-  const activeCanvas = useRef<Canvas>();
+  const activeCanvas = useRef<DisplayedCanvas>();
 
   const bombCanvasRef = useRef(null);
-  const bombCanvas = useRef<Canvas>();
+  const bombCanvas = useRef<DisplayedCanvas>();
 
-  const bombDrawingOffscreenCanvas = useRef<Canvas>();
+  const bombDrawingOffscreenCanvas = useRef<LogicalCanvas>();
   const isDrawingBombRef = useRef(false);
 
   const testCanvasRef = useRef(null);
-  const testCanvas = useRef<Canvas>();
+  const testCanvas = useRef<DisplayedCanvas>();
 
   const playerRefs = useRef<Player[]>([]);
   const activePlayer = useRef<Player>();
@@ -172,6 +176,12 @@ const Battlefield: React.FC = () => {
     }
   } 
 
+  const syncWithLogicalMapCanvas = () => {
+    if(logicalMapCanvas.current) {
+      mapCanvas.current?.syncWithLogicalCanvas(logicalMapCanvas.current.el)
+    }
+  }
+
   const msgHandler = useRef({
     getClientPlayerId() {
       return client.id;
@@ -191,6 +201,8 @@ const Battlefield: React.FC = () => {
     syncBombDataBeforePlayerFires(bombsData: Bomb[], isTrident?: boolean) {
       socketRef.current?.emit("syncBombDataBeforePlayerFires", bombsData, isTrident);
     },
+
+    syncWithLogicalMapCanvas,
 
     checkBombEffect(bombTarget: BombTarget) {
       playerRefs.current.forEach((player) => {
@@ -522,23 +534,33 @@ const Battlefield: React.FC = () => {
       activePlayer.current.firingPower = activePlayerFiringPower;
       activePlayer.current.isTrident = activePlayerIsTrident;
 
+      const initBeforeFiring = () => {
+        // copy地图到offscreenCanvas
+        bombDrawingOffscreenCanvas.current!.ctx.clearRect(
+          0,
+          0,
+          bombDrawingOffscreenCanvas.current!.el.width,
+          bombDrawingOffscreenCanvas.current!.el.height
+        );
+        bombDrawingOffscreenCanvas.current!.ctx.drawImage(
+          logicalMapCanvas.current!.el,
+          0,
+          0
+        );
+        bombDrawingOffscreenCanvas.current!.ctx.lineWidth = mapCanvas.current!.ctx.lineWidth
+        bombDrawingOffscreenCanvas.current!.ctx.strokeStyle = mapCanvas.current!.ctx.strokeStyle
+        
+        activePlayer.current!.firingPosition = {
+          x: activePlayer.current!.centerPoint.x,
+          y: activePlayer.current!.centerPoint.y - Player.BOUNDING_BOX_LENGTH
+        }
+      }
+
       if (activePlayer.current.isTrident) {
         if (mapCanvas.current) {
           // 如果当前 client是 activePlayer
           if (isActivePlayer()) {
-            // copy地图到offscreenCanvas
-            bombDrawingOffscreenCanvas.current!.ctx.clearRect(
-              0,
-              0,
-              bombDrawingOffscreenCanvas.current!.el.width,
-              bombDrawingOffscreenCanvas.current!.el.height
-            );
-            bombDrawingOffscreenCanvas.current!.ctx.drawImage(
-              mapCanvas.current.el,
-              0,
-              0
-            );
-            // 准备fire
+            initBeforeFiring()
             activePlayer.current.tridentBombs = []
             activePlayer.current.playerStartToFireTrident();
           }
@@ -547,24 +569,7 @@ const Battlefield: React.FC = () => {
         if (mapCanvas.current) {
           // 如果当前 client是 activePlayer，则准备fire
           if (isActivePlayer()) {
-            bombDrawingOffscreenCanvas.current!.ctx.clearRect(
-              0,
-              0,
-              bombDrawingOffscreenCanvas.current!.el.width,
-              bombDrawingOffscreenCanvas.current!.el.height
-            );
-            bombDrawingOffscreenCanvas.current!.ctx.drawImage(
-              mapCanvas.current.el,
-              0,
-              0
-            );
-            bombDrawingOffscreenCanvas.current!.ctx.lineWidth = mapCanvas.current.ctx.lineWidth
-            bombDrawingOffscreenCanvas.current!.ctx.strokeStyle = mapCanvas.current.ctx.strokeStyle
-
-            activePlayer.current.firingPosition = {
-              x: activePlayer.current.centerPoint.x,
-              y: activePlayer.current.centerPoint.y - Player.BOUNDING_BOX_LENGTH
-            }
+            initBeforeFiring()
             activePlayer.current.playerStartToFire();
           }
         }
@@ -661,54 +666,36 @@ const Battlefield: React.FC = () => {
 
       console.log("initBattlefield");
 
-      mapCanvas.current = new MapCanvas({
+      logicalMapCanvas.current = new LogicalCanvas({
+        initMap: MULTIPLE_SIMPLE,
+      });
+
+      mapCanvas.current = new DisplayedCanvas({
         el: mapCanvasRef.current,
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
-        initMap: MULTIPLE,
       });
+      syncWithLogicalMapCanvas()
 
-      inactiveCanvas.current = new Canvas({
+      inactiveCanvas.current = new DisplayedCanvas({
         el: inactiveCanvasRef.current,
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
       });
 
-      activeCanvas.current = new Canvas({
+      activeCanvas.current = new DisplayedCanvas({
         el: activeCanvasRef.current,
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
       });
 
-      bombCanvas.current = new Canvas({
+      bombCanvas.current = new DisplayedCanvas({
         el: bombCanvasRef.current,
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
       });
 
-      bombDrawingOffscreenCanvas.current = new Canvas({
-        el: document.createElement('canvas'),
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
-      });
+      bombDrawingOffscreenCanvas.current = new LogicalCanvas();
 
-      testCanvas.current = new Canvas({
+      testCanvas.current = new DisplayedCanvas({
         el: testCanvasRef.current,
-        // width: window.innerWidth,
-        width: 1920,
-        // height: window.innerHeight,
-        height: 1080,
       });
+
+      // TODO 等待所有players的bomb image都加载完毕
+      const playerBombImage = new Image()
+      playerBombImage.src = bombImage
 
       playersData.forEach((item) => {
         const {
@@ -725,7 +712,7 @@ const Battlefield: React.FC = () => {
         const player = new Player({
           msgHandler: msgHandler.current,
 
-          mapCanvas: mapCanvas.current!,
+          logicalMapCanvas: logicalMapCanvas.current!,
           inactiveCanvas: inactiveCanvas.current!,
           activeCanvas: activeCanvas.current!,
           bombCanvas: bombCanvas.current!,
@@ -739,7 +726,10 @@ const Battlefield: React.FC = () => {
 
           healthMax,
 
-          weapon,
+          weapon: {
+            ...weapon,
+            bombImage: playerBombImage
+          }
         });
 
         // 保存多个player实例
@@ -780,10 +770,7 @@ const Battlefield: React.FC = () => {
         player.drawPlayer();
       });
 
-      setIsNextTurnNotiVisible(true)
-      setActivePlayerIsOperationDone(true)
-
-      //
+      // 注册事件
       socketRef.current?.on("playerOffline", playerOffline);
       socketRef.current?.on("playerLeaveGame", playerLeaveGame);
       socketRef.current?.on("activePlayerMove", activePlayerMove);
@@ -800,6 +787,13 @@ const Battlefield: React.FC = () => {
       document.addEventListener("contextmenu", onContextmenu);
       document.body.addEventListener("keydown", onKeydown);
       document.body.addEventListener("keyup", onKeyup);
+
+      // 
+      playerBombImage.onload = function() { 
+        console.log('bomb 加载完成')
+        setIsNextTurnNotiVisible(true)
+        setActivePlayerIsOperationDone(true)
+      }
     }
 
     return () => {
@@ -865,6 +859,7 @@ const Battlefield: React.FC = () => {
             <canvas id="active" ref={activeCanvasRef}></canvas>
             <canvas id="bomb" ref={bombCanvasRef}></canvas>
             <canvas id="test" ref={testCanvasRef}></canvas>
+            
           </div>
           <div id="ui-container">
             <div className="left">

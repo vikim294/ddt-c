@@ -1,12 +1,13 @@
 #battle-field {
 
     canvas {
+        // display: none;
         position: absolute;
         z-index: 1;
     }
 
     #map {
-        /* display: none */
+        // display: block;
     }
 
     #active {}

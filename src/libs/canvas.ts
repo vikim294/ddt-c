@@ -8,8 +8,6 @@ export interface Point {
 
 interface CanvasOptions {
   el?: HTMLCanvasElement
-  width: number
-  height: number
   willReadFrequently?: boolean
 }
 
@@ -18,13 +16,15 @@ type Map = string[][]
 export class Canvas {
   readonly el: HTMLCanvasElement
   readonly ctx: CanvasRenderingContext2D
+  readonly dpr: number
+
+  static logicalWidth = 1440
+  static logicalHeight = 900
 
   constructor(options: CanvasOptions) {
     const {
       el,
-      width,
-      height,
-      willReadFrequently
+      willReadFrequently,
     } = options
 
     if(el) {
@@ -33,13 +33,111 @@ export class Canvas {
     else {
       this.el = document.createElement('canvas')
     }
-    this.el.width = width
-    this.el.height = height
+
+    this.dpr = window.devicePixelRatio || 1
+
+    // css
+    this.el.style.width = Canvas.logicalWidth +'px'
+    this.el.style.height = Canvas.logicalHeight +'px'
+
     this.ctx = this.el.getContext('2d', {
         willReadFrequently
-    })!
+    }) as CanvasRenderingContext2D 
+  }
+
+}
+
+interface LogicalCanvasOptions extends CanvasOptions {
+  initMap?: Map
+}
+
+export class LogicalCanvas extends Canvas {
+
+  constructor(options?: LogicalCanvasOptions) {
+    super({
+      ...options,
+      willReadFrequently: true,
+    })
+
+    // logical canvas
+    this.el.width = Canvas.logicalWidth
+    this.el.height = Canvas.logicalHeight
+
+    this.ctx.fillStyle = '#00ff00'
+    this.ctx.strokeStyle = '#ff0000'
+    this.ctx.lineWidth = 2
+
+    if(options?.initMap) {
+      drawMap(this.el, this.ctx, options.initMap)
+    }
+  }
+
+  toCartesianCoordinateY(y: number) {
+    return this.el.height - y
+  }
+
+  /**
+   * 以point为中心，length为边长的正方形内
+   */
+  getSurfacePointsByPointAndLength(point: Point, length: number) {
+      console.log('point', point, 'length', length)
+      const {
+        x, y
+      } = point
+
+      const res = []
+      const { data } = this.ctx.getImageData(x - length / 2, y - length / 2, length, length)
+      for(let col = 0; col < length; col++) {
+          for(let row = 0; row < length; row++) {
+              const index = (row * length + col) * 4
+              // console.log(data[index])
+              const r = data[index]
+              const g = data[index + 1]
+              if(r === 255) {
+                  res.push({
+                      x: col + x - length / 2 + 1,
+                      y: row + y - length / 2 + 1,
+                  })
+                  break
+              } 
+              else if(g === 255) {
+                  break
+              }
+          }
+      }
+      console.log('res', res)
+      return res
+  }
+
+  getAngleByTwoTerrainPoints(pointA: Point, pointB: Point) {
+      // console.log('pointA, pointB', pointA, pointB)
+      const dy = this.toCartesianCoordinateY(pointA.y) - this.toCartesianCoordinateY(pointB.y)
+      const dx = pointA.x - pointB.x
+      const radian = Math.atan(dy / dx)
+      // PI = 180°
+      const angle = 180 / Math.PI * radian
+      // console.log('angle', angle)
+      return Math.floor(angle)
+  }
+
+} 
+
+export class DisplayedCanvas extends Canvas {
 
 
+  constructor(options: CanvasOptions) {
+    super({
+      ...options,
+      willReadFrequently: false
+    })
+
+    // physical canvas
+    this.el.width = Canvas.logicalWidth * this.dpr
+    this.el.height = Canvas.logicalHeight * this.dpr
+
+    this.ctx.scale(this.dpr, this.dpr)
+
+    this.ctx.imageSmoothingEnabled = false; 
   }
 
   drawTrack(track: {
@@ -66,79 +164,12 @@ export class Canvas {
       this.ctx.restore()
   }
 
+  syncWithLogicalCanvas(logicalCanvas: HTMLCanvasElement) {
+    this.ctx.clearRect(0, 0, this.el.width, this.el.height)
+    this.ctx.drawImage(logicalCanvas, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight);
+  }
+
 }
-
-interface MapCanvasOptions extends CanvasOptions {
-  initMap: Map
-}
-
-export class MapCanvas extends Canvas {
-
-  constructor(options: MapCanvasOptions) {
-    super({
-      ...options,
-      willReadFrequently: true
-    })
-
-    const {
-      initMap,
-    } = options
-
-    this.ctx.fillStyle = '#00ff00'
-    this.ctx.strokeStyle = '#ff0000'
-    this.ctx.lineWidth = 2
-
-    drawMap(this.el, this.ctx, initMap)
-  }
-
-  toCartesianCoordinateY(y: number) {
-    return this.el.height - y
-  }
-
-  /**
-   * 以point为中心，length为边长的正方形内
-   */
-  getSurfacePointsByPointAndLength(point: Point, length: number) {
-      const {
-        x, y
-      } = point
-
-      const res = []
-      const { data } = this.ctx.getImageData(x - length / 2, y - length / 2, length, length)
-      for(let col = 0; col < length; col++) {
-          for(let row = 0; row < length; row++) {
-              const index = (row * length + col) * 4
-              // console.log(data[index])
-              const r = data[index]
-              const g = data[index + 1]
-              if(r === 255) {
-                  res.push({
-                      x: col + x - length / 2 + 1,
-                      y: row + y - length / 2 + 1,
-                  })
-                  break
-              } 
-              else if(g === 255) {
-                  break
-              }
-          }
-      }
-      // console.log(res)
-      return res
-  }
-
-  getAngleByTwoTerrainPoints(pointA: Point, pointB: Point) {
-      // console.log('pointA, pointB', pointA, pointB)
-      const dy = this.toCartesianCoordinateY(pointA.y) - this.toCartesianCoordinateY(pointB.y)
-      const dx = pointA.x - pointB.x
-      const radian = Math.atan(dy / dx)
-      // PI = 180°
-      const angle = 180 / Math.PI * radian
-      // console.log('angle', angle)
-      return Math.floor(angle)
-  }
-
-} 
 
 export function setCtxPathByMap(ctx: CanvasRenderingContext2D, partMap: string[]) {
   partMap.forEach((item, index) => {
