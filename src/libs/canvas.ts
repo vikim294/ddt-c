@@ -164,9 +164,19 @@ export class DisplayedCanvas extends Canvas {
       this.ctx.restore()
   }
 
-  syncWithLogicalCanvas(logicalCanvas: HTMLCanvasElement) {
+  syncWithLogicalCanvas(logicalMapCanvas: HTMLCanvasElement, logicalBombImpactCanvas: HTMLCanvasElement) {
+    const offscreenCanvas = new OffscreenCanvas(LogicalCanvas.logicalWidth, LogicalCanvas.logicalHeight)
+    const offscreenCanvasCtx = offscreenCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D 
+    offscreenCanvasCtx.reset()
+    // 把 logicalMapCanvas 绘制到 offscreenCanvas
+    offscreenCanvasCtx.drawImage(logicalMapCanvas, 0, 0)
+    // 把 logicalBombImpactCanvas 绘制到 offscreenCanvas (source-atop)
+    offscreenCanvasCtx.globalCompositeOperation = 'source-atop'
+    offscreenCanvasCtx.drawImage(logicalBombImpactCanvas, 0, 0)
+
+    // 把 offscreenCanvas 绘制到 displayed canvas
     this.ctx.clearRect(0, 0, this.el.width, this.el.height)
-    this.ctx.drawImage(logicalCanvas, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight);
+    this.ctx.drawImage(offscreenCanvas, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight);
   }
 
 }

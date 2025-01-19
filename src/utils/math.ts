@@ -4,6 +4,11 @@ export function angleToRadian(angle: number) {
   return Math.PI / 180 * angle
 }
 
+export function radianToAngle(radian: number) {
+  return 180 / Math.PI * radian
+}
+
+
 /**
  * 计算两点之间的距离
  */

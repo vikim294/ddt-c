@@ -1,7 +1,7 @@
 
 // import { Socket } from "socket.io-client"
-import { angleToRadian, getDistanceBetweenTwoPoints } from "../utils/math"
-import { Canvas, LogicalCanvas, Point, pointOutOfMap, setCtxPathByMap, toCanvasCoordinateY, toCartesianCoordinateY } from "./canvas"
+import { angleToRadian, getDistanceBetweenTwoPoints, radianToAngle } from "../utils/math"
+import { Canvas, DisplayedCanvas, LogicalCanvas, Point, pointOutOfMap, setCtxPathByMap, toCanvasCoordinateY, toCartesianCoordinateY } from "./canvas"
 import { G, PLAYER_MOVING_DURATION, TRIDENT_ANGLE_DIFFERENCE } from "./constants"
 import { SHELL_CRATER_50_round } from "./shellCraters"
 import { MsgHandler } from "../views/Battlefield/index"
@@ -19,11 +19,12 @@ export interface PlayerOptions {
   msgHandler: MsgHandler
 
   logicalMapCanvas: LogicalCanvas
-  inactiveCanvas: Canvas
-  activeCanvas: Canvas
-  bombCanvas: Canvas
-  bombDrawingOffscreenCanvas: Canvas
-  testCanvas: Canvas
+  logicalBombImpactCanvas: LogicalCanvas
+  inactiveCanvas: DisplayedCanvas
+  activeCanvas: DisplayedCanvas
+  bombCanvas: DisplayedCanvas
+  bombDrawingOffscreenCanvas: LogicalCanvas
+  testCanvas: DisplayedCanvas
 
   id: string
   name: string
@@ -48,6 +49,7 @@ export interface Bomb {
     v0Horizontal: number
     v0Vertical: number
 
+    size: number
     damageRadius: number
 
     track: {
@@ -67,6 +69,7 @@ export class Player {
   msgHandler: MsgHandler
 
   logicalMapCanvas: LogicalCanvas
+  logicalBombImpactCanvas: LogicalCanvas
   inactiveCanvas: Canvas
   activeCanvas: Canvas
   bombCanvas: Canvas
@@ -123,6 +126,7 @@ export class Player {
       msgHandler,
 
       logicalMapCanvas,
+      logicalBombImpactCanvas,
       inactiveCanvas,
       activeCanvas,
       bombCanvas,
@@ -142,6 +146,7 @@ export class Player {
     this.msgHandler = msgHandler
 
     this.logicalMapCanvas = logicalMapCanvas
+    this.logicalBombImpactCanvas = logicalBombImpactCanvas
     this.inactiveCanvas = inactiveCanvas
     this.activeCanvas = activeCanvas
     this.bombCanvas = bombCanvas
@@ -752,9 +757,84 @@ export class Player {
     this.drawBomb()
   }
 
+  getBombTarget(bomb: Bomb) {
+    const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, LogicalCanvas.logicalWidth, LogicalCanvas.logicalHeight)
+    let count = 0
+    for(let i = 0; i < bomb.track.length; i++) {
+            const {
+                x, y, sec
+            } = bomb.track[i]
+
+            // 如果track上的该点 在map范围外
+            if(pointOutOfMap(bomb.track[i], LogicalCanvas.logicalWidth, LogicalCanvas.logicalHeight)) {
+                break
+            }
+            
+            for(let row = 0; row < bomb.size; row++) {
+                const py = y - bomb.size / 2 + row
+
+                if(py < 0) {
+                    continue
+                }
+
+                for(let col = 0; col < bomb.size; col++) {
+                    count++
+                    
+                    const px = x - bomb.size / 2 + col
+                    if(px < 0 || px >= LogicalCanvas.logicalWidth) {
+                        continue
+                    }
+
+                    const index = (py * LogicalCanvas.logicalWidth + px) * 4
+
+                    const r = canvasData[index]
+                    const g = canvasData[index + 1]
+                    const b = canvasData[index + 2]
+                    // const a = canvasData[index + 3]
+                    // console.log('x, y', x, y, 'r, g, b, a', r, g, b, a)
+            
+                    if(!(r === 0 && g === 0 && b === 0)) {
+                        bomb.targetX = x
+                        bomb.targetY = y
+                        bomb.bombSec = sec
+            
+                        // 在离屏canvas上 bombTarget 
+                        // console.log('在离屏canvas上 bombTarget')
+                        this.bombTarget({
+                            x,
+                            y,
+                            damageRadius: bomb.damageRadius
+                        }, this.bombDrawingOffscreenCanvas.ctx)
+
+                        // this.testCanvas.ctx.clearRect(0, 0, this.testCanvas.el.width, this.testCanvas.el.height)
+                        // this.testCanvas.ctx.drawImage(this.bombDrawingOffscreenCanvas.el, 0, 0)
+                        // this.testCanvas.drawTrack(bomb.track)
+
+                        console.log('count', count)
+
+                        return true
+                    }
+                }
+            }
+    }
+
+    if(bomb.bombSec === -1) {
+        console.log('out of map boundary:', bomb.id)
+        const {
+            x, y, sec
+        } = bomb.track[bomb.track.length - 1]
+        bomb.targetX = x
+        bomb.targetY = y
+        bomb.bombSec = sec
+        bomb.isOutOfMapBoundary = true
+    }
+    console.log('count', count)
+
+    return false
+  }
+
   preCalculateBombData() {
     console.log('preCalculateBombData')
-    const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.el.width, this.bombDrawingOffscreenCanvas.el.height)
 
     // --- init bomb
     const firingAngle = this.angle + this.weaponAngle
@@ -777,6 +857,7 @@ export class Player {
         y: this.firingPosition.y,
         v0Horizontal,
         v0Vertical,
+        size: 2,
         damageRadius: 50,
         track: [],
         bombSec: -1,
@@ -795,14 +876,14 @@ export class Player {
     }
 
     const track = []
+    track.push({
+        x: _bomb.x,
+        y: _bomb.y,
+        sec,
+        bombAngle: this.direction === 'right' ? -angle : 180 + -angle
+    })
     while(!pointOutOfMap(_bomb, this.logicalMapCanvas.el.width, this.logicalMapCanvas.el.height)) {
         // console.log('preCalculate')
-        track.push({
-            x: _bomb.x,
-            y: _bomb.y,
-            sec
-        })
-
         sec += 0.001
         sec = +sec.toFixed(3)
 
@@ -811,6 +892,18 @@ export class Player {
         const y = toCartesianCoordinateY(this.firingPosition.y - Player.BOUNDING_BOX_LENGTH, this.logicalMapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
         _bomb.x = Math.floor(x)
         _bomb.y = Math.floor(toCanvasCoordinateY(y, this.logicalMapCanvas.el.height))
+        
+        const vx = _bomb.v0Horizontal
+        const vy = _bomb.v0Vertical + G * sec
+
+        const angle = radianToAngle(Math.atan(vy / vx))
+
+        track.push({
+            x: _bomb.x,
+            y: _bomb.y,
+            sec,
+            bombAngle: this.direction === 'right' ? -angle : 180 + -angle
+        })
     }
 
     // console.log('pointOutOfMap! sec:', sec)
@@ -820,82 +913,8 @@ export class Player {
 
     bomb.track = track
 
-    // getTarget
-    for(let i = 0; i < bomb.track.length; i++) {
-        // --- bomb角度计算
-        // if(i >= 10 && i <= bomb.track.length - 11) {
-        //     const point1 = bomb.track[i - 10]
-        //     const point2 = bomb.track[i + 10]
+    bomb.isOutOfMapBoundary = !this.getBombTarget(bomb)
 
-        //     const angle = this.logicalMapCanvas.getAngleByTwoTerrainPoints(point1, point2)
-        //     // console.log('angle', angle)
-    
-        //     let bombAngle = null
-        //     if(this.direction === 'right') {
-        //         // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
-        //         bombAngle = -angle
-        //     }
-        //     else {
-        //         // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
-        //         bombAngle = 180 + -angle
-        //     }
-    
-        //     bomb.track[i].bombAngle = bombAngle
-        // }
-
-        if(bomb.bombSec === -1) {
-            const {
-                x, y, sec
-            } = bomb.track[i]
-
-            // 如果track上的该点 在map范围外
-            if(x < 0 || y < 0 || x >= this.bombDrawingOffscreenCanvas.el.width || y >= this.bombDrawingOffscreenCanvas.el.height) {
-                continue
-            }
-
-            // x y 像素的数据
-            const index = (y * this.bombDrawingOffscreenCanvas.el.width + x) * 4
-            const r = canvasData[index]
-            const g = canvasData[index + 1]
-            const b = canvasData[index + 2]
-            // const a = canvasData[index + 3]
-            // console.log('x, y', x, y, 'r, g, b, a', r, g, b, a)
-    
-            if(!(r === 0 && g === 0 && b === 0)) {
-                bomb.targetX = x
-                bomb.targetY = y
-                bomb.bombSec = sec
-    
-                // 在离屏canvas上 bombTarget 
-                // console.log('在离屏canvas上 bombTarget')
-                this.bombTarget({
-                    x,
-                    y,
-                    damageRadius: bomb.damageRadius
-                }, this.bombDrawingOffscreenCanvas.ctx)
-
-
-                // this.testCanvas.ctx.clearRect(0, 0, this.testCanvas.el.width, this.testCanvas.el.height)
-                // this.testCanvas.ctx.drawImage(this.bombDrawingOffscreenCanvas.el, 0, 0)
-                // this.testCanvas.drawTrack(bomb.track)
-            }
-        }
-    }
-
-    if(bomb.bombSec === -1) {
-        console.log('out of map boundary:', bomb.id)
-        const {
-            x, y
-        } = bomb.track[bomb.track.length - 1]
-        bomb.targetX = x
-        bomb.targetY = y
-        bomb.bombSec = sec
-        bomb.isOutOfMapBoundary = true
-    }
-
-    // --- begin to fire
-    console.log('bomb', bomb)
-    
     this.msgHandler.syncBombDataBeforePlayerFires(this.bombsData)
   } 
 
@@ -943,6 +962,7 @@ export class Player {
                     bombAngle: bomb.track[elapsedMs].bombAngle
                 }
                 this.bombTarget(target, this.logicalMapCanvas.ctx)
+                this.bombImpact(target)
                 this.msgHandler.syncWithLogicalMapCanvas()
 
                 // bomb 对 players的effect
@@ -956,7 +976,7 @@ export class Player {
         const {
             x,
             y,
-            // bombAngle
+            bombAngle
         } = bomb.track[elapsedMs]
 
         // 1.
@@ -967,7 +987,7 @@ export class Player {
         this.bombCanvas.ctx.save()
 
         this.bombCanvas.ctx.translate(bomb.x, bomb.y)
-        // this.bombCanvas.ctx.rotate(angleToRadian(bombAngle))
+        this.bombCanvas.ctx.rotate(angleToRadian(bombAngle!))
         this.bombCanvas.ctx.drawImage(this.weapon.bombImage, 0, 0, this.weapon.bombImage.width, this.weapon.bombImage.height, -this.weapon.bombImage.width / 2, -this.weapon.bombImage.height / 2, this.weapon.bombImage.width, this.weapon.bombImage.height)
 
         this.bombCanvas.ctx.restore()
@@ -1009,14 +1029,14 @@ export class Player {
 
         // --- calculate track
         const track = []
+        track.push({
+            x: _bomb.x,
+            y: _bomb.y,
+            sec,
+            bombAngle: this.direction === 'right' ? -angle : 180 + -angle
+        })
         while(!pointOutOfMap(_bomb, this.logicalMapCanvas.el.width, this.logicalMapCanvas.el.height)) {
             // console.log('preCalculate')
-            track.push({
-                x: _bomb.x,
-                y: _bomb.y,
-                sec
-            })
-
             sec += 0.001
             sec = +sec.toFixed(3)
 
@@ -1024,6 +1044,18 @@ export class Player {
             const y = toCartesianCoordinateY(this.centerPoint.y - Player.BOUNDING_BOX_LENGTH, this.logicalMapCanvas.el.height) + _bomb.v0Vertical * sec + 1 / 2 * G * sec * sec
             _bomb.x = Math.floor(x)
             _bomb.y = Math.floor(toCanvasCoordinateY(y, this.logicalMapCanvas.el.height))
+
+            const vx = _bomb.v0Horizontal
+            const vy = _bomb.v0Vertical + G * sec
+
+            const angle = radianToAngle(Math.atan(vy / vx))
+
+            track.push({
+                x: _bomb.x,
+                y: _bomb.y,
+                sec,
+                bombAngle: this.direction === 'right' ? -angle : 180 + -angle
+            })
         }
 
         // console.log('pointOutOfMap! sec:', sec)
@@ -1035,27 +1067,6 @@ export class Player {
 
         // --- getTarget
         for(let i = 0; i < bomb.track.length; i++) {
-            // --- bomb角度计算
-            if(i >= 10 && i <= bomb.track.length - 11) {
-                const point1 = bomb.track[i - 10]
-                const point2 = bomb.track[i + 10]
-
-                const angle = this.logicalMapCanvas.getAngleByTwoTerrainPoints(point1, point2)
-                // console.log('angle', angle)
-        
-                let bombAngle = null
-                if(this.direction === 'right') {
-                    // console.log('player朝右 bomb的角度(canvas需要rotate的角度)为：', -angle)
-                    bombAngle = -angle
-                }
-                else {
-                    // console.log('player朝左 bomb的角度(canvas需要rotate的角度)为：', 180 + -angle)
-                    bombAngle = 180 + -angle
-                }
-        
-                bomb.track[i].bombAngle = bombAngle
-            }
-
             // --- target
             if(bomb.bombSec === -1) {
                 const {
@@ -1130,7 +1141,8 @@ export class Player {
     
             v0Horizontal: v0 * Math.cos(angleToRadian(newAngle)),
             v0Vertical: v0 * Math.sin(angleToRadian(newAngle)),
-    
+            
+            size: 1,
             damageRadius: 50,
             track: [],
 
@@ -1206,12 +1218,22 @@ export class Player {
         const {
             x,
             y,
-            // bombAngle
+            bombAngle
         } = bomb.track[elapsedMs]
 
-        this.bombCanvas.ctx.beginPath()
-        this.bombCanvas.ctx.arc(bomb.x, bomb.y, 1, 0, Math.PI * 2)
-        this.bombCanvas.ctx.stroke()
+        // 1.
+        // this.bombCanvas.ctx.beginPath()
+        // this.bombCanvas.ctx.arc(bomb.x, bomb.y, 1, 0, Math.PI * 2)
+        // this.bombCanvas.ctx.stroke()
+
+        // 2.bomb使用图片 且角度动态改变
+        this.bombCanvas.ctx.save()
+
+        this.bombCanvas.ctx.translate(bomb.x, bomb.y)
+        this.bombCanvas.ctx.rotate(angleToRadian(bombAngle!))
+        this.bombCanvas.ctx.drawImage(this.weapon.bombImage, 0, 0, this.weapon.bombImage.width, this.weapon.bombImage.height, -this.weapon.bombImage.width / 2, -this.weapon.bombImage.height / 2, this.weapon.bombImage.width, this.weapon.bombImage.height)
+
+        this.bombCanvas.ctx.restore()
 
         // 计算在笛卡尔坐标系下的 x 和 y
         // const x = this.centerPoint.x + bomb.v0Horizontal * elapsedSec
@@ -1258,12 +1280,19 @@ export class Player {
     ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
     ctx.globalCompositeOperation = 'source-atop'
 
-
     // ctx.translate(x - damageRadius, y - damageRadius)
     // setCtxPathByMap(ctx, SHELL_CRATER_50_round)
     ctx.stroke()
 
     ctx.restore()
+  }
+
+  bombImpact({x, y, damageRadius}: BombTarget) {
+    this.logicalBombImpactCanvas.ctx.beginPath()
+    this.logicalBombImpactCanvas.ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
+    this.logicalBombImpactCanvas.ctx.lineWidth = 10
+    this.logicalBombImpactCanvas.ctx.strokeStyle = '#000'
+    this.logicalBombImpactCanvas.ctx.stroke()
   }
 }
 

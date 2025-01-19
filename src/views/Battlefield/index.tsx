@@ -88,6 +88,7 @@ const Battlefield: React.FC = () => {
   const [isOperationDone, setIsOperationDone] = useState(false);
 
   const logicalMapCanvas = useRef<LogicalCanvas>();
+  const logicalBombImpactCanvas = useRef<LogicalCanvas>();
 
   const mapCanvasRef = useRef(null);
   const mapCanvas = useRef<DisplayedCanvas>();
@@ -177,8 +178,8 @@ const Battlefield: React.FC = () => {
   } 
 
   const syncWithLogicalMapCanvas = () => {
-    if(logicalMapCanvas.current) {
-      mapCanvas.current?.syncWithLogicalCanvas(logicalMapCanvas.current.el)
+    if(logicalMapCanvas.current && logicalBombImpactCanvas.current) {
+      mapCanvas.current?.syncWithLogicalCanvas(logicalMapCanvas.current.el, logicalBombImpactCanvas.current.el)
     }
   }
 
@@ -670,6 +671,8 @@ const Battlefield: React.FC = () => {
         initMap: MULTIPLE_SIMPLE,
       });
 
+      logicalBombImpactCanvas.current = new LogicalCanvas();
+
       mapCanvas.current = new DisplayedCanvas({
         el: mapCanvasRef.current,
       });
@@ -713,6 +716,7 @@ const Battlefield: React.FC = () => {
           msgHandler: msgHandler.current,
 
           logicalMapCanvas: logicalMapCanvas.current!,
+          logicalBombImpactCanvas: logicalBombImpactCanvas.current!,
           inactiveCanvas: inactiveCanvas.current!,
           activeCanvas: activeCanvas.current!,
           bombCanvas: bombCanvas.current!,
