@@ -18,6 +18,7 @@ import {
 import { SOCKET_SERVER_URL } from "../../utils/conf";
 
 import bombImage from "../../assets/bomb.png"
+import { ExplosionParticleEffect } from "../../libs/particleEffect";
 
 interface ClientPlayer {
   id: string;
@@ -59,6 +60,8 @@ export interface MsgHandler {
   onPlayerFall: () => void;
   syncBombDataBeforePlayerFires: (bombsData: Bomb[], isTrident?: boolean) => void;
   syncWithLogicalMapCanvas: () => void;
+  addExplosionParticleEffect: (target: Point)=> void
+  startExplosionParticleEffect: ()=> void
   checkBombEffect: (bombTarget: BombTarget) => void;
   setActivePlayerAngle: (angle: number) => void;
   resetActivePlayerFiringPower: () => void;
@@ -103,7 +106,13 @@ const Battlefield: React.FC = () => {
   const bombCanvas = useRef<DisplayedCanvas>();
 
   const bombDrawingOffscreenCanvas = useRef<LogicalCanvas>();
+
   const isDrawingBombRef = useRef(false);
+
+  const explosionParticleCanvasRef = useRef(null);
+  const explosionParticleCanvas = useRef<DisplayedCanvas>();
+
+  const explosionParticleEffectRef = useRef<ExplosionParticleEffect>()
 
   const testCanvasRef = useRef(null);
   const testCanvas = useRef<DisplayedCanvas>();
@@ -204,6 +213,14 @@ const Battlefield: React.FC = () => {
     },
 
     syncWithLogicalMapCanvas,
+
+    addExplosionParticleEffect(target: Point) {
+      explosionParticleEffectRef.current?.addGroup(target)
+    },
+
+    startExplosionParticleEffect() {
+      explosionParticleEffectRef.current?.start()
+    },
 
     checkBombEffect(bombTarget: BombTarget) {
       playerRefs.current.forEach((player) => {
@@ -659,6 +676,7 @@ const Battlefield: React.FC = () => {
         !inactiveCanvasRef.current ||
         !activeCanvasRef.current ||
         !bombCanvasRef.current ||
+        !explosionParticleCanvasRef.current ||
         !testCanvasRef.current
       ) {
         console.error("canvasRef is null");
@@ -692,9 +710,16 @@ const Battlefield: React.FC = () => {
 
       bombDrawingOffscreenCanvas.current = new LogicalCanvas();
 
+      explosionParticleCanvas.current = new DisplayedCanvas({
+        el: explosionParticleCanvasRef.current,
+      });
+
       testCanvas.current = new DisplayedCanvas({
         el: testCanvasRef.current,
       });
+
+      // ExplosionParticleEffect
+      explosionParticleEffectRef.current = new ExplosionParticleEffect(explosionParticleCanvas.current.ctx)
 
       // TODO 等待所有players的bomb image都加载完毕
       const playerBombImage = new Image()
@@ -721,6 +746,7 @@ const Battlefield: React.FC = () => {
           activeCanvas: activeCanvas.current!,
           bombCanvas: bombCanvas.current!,
           bombDrawingOffscreenCanvas: bombDrawingOffscreenCanvas.current!,
+          explosionParticleCanvas: explosionParticleCanvas.current!,
           testCanvas: testCanvas.current!,
 
           id,
@@ -862,8 +888,8 @@ const Battlefield: React.FC = () => {
             <canvas id="inactive" ref={inactiveCanvasRef}></canvas>
             <canvas id="active" ref={activeCanvasRef}></canvas>
             <canvas id="bomb" ref={bombCanvasRef}></canvas>
+            <canvas id="explosionParticle" ref={explosionParticleCanvasRef}></canvas>
             <canvas id="test" ref={testCanvasRef}></canvas>
-            
           </div>
           <div id="ui-container">
             <div className="left">

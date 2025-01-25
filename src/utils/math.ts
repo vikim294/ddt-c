@@ -8,6 +8,9 @@ export function radianToAngle(radian: number) {
   return 180 / Math.PI * radian
 }
 
+export function getRandomNumBetween(left: number, right: number) {
+  return Math.floor((Math.random() * (right + 1 - left)) + left)
+}
 
 /**
  * 计算两点之间的距离

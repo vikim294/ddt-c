@@ -24,6 +24,7 @@ export interface PlayerOptions {
   activeCanvas: DisplayedCanvas
   bombCanvas: DisplayedCanvas
   bombDrawingOffscreenCanvas: LogicalCanvas
+  explosionParticleCanvas: DisplayedCanvas
   testCanvas: DisplayedCanvas
 
   id: string
@@ -70,11 +71,12 @@ export class Player {
 
   logicalMapCanvas: LogicalCanvas
   logicalBombImpactCanvas: LogicalCanvas
-  inactiveCanvas: Canvas
-  activeCanvas: Canvas
-  bombCanvas: Canvas
-  bombDrawingOffscreenCanvas: Canvas
-  testCanvas: Canvas
+  inactiveCanvas: DisplayedCanvas
+  activeCanvas: DisplayedCanvas
+  bombCanvas: DisplayedCanvas
+  bombDrawingOffscreenCanvas: LogicalCanvas
+  explosionParticleCanvas: DisplayedCanvas
+  testCanvas: DisplayedCanvas
 
   id: string
   name: string
@@ -131,6 +133,7 @@ export class Player {
       activeCanvas,
       bombCanvas,
       bombDrawingOffscreenCanvas,
+      explosionParticleCanvas,
       testCanvas,
 
       id,
@@ -151,6 +154,7 @@ export class Player {
     this.activeCanvas = activeCanvas
     this.bombCanvas = bombCanvas
     this.bombDrawingOffscreenCanvas = bombDrawingOffscreenCanvas
+    this.explosionParticleCanvas = explosionParticleCanvas
     this.testCanvas = testCanvas
 
     this.id = id
@@ -779,7 +783,7 @@ export class Player {
 
                 for(let col = 0; col < bomb.size; col++) {
                     count++
-                    
+
                     const px = x - bomb.size / 2 + col
                     if(px < 0 || px >= LogicalCanvas.logicalWidth) {
                         continue
@@ -964,6 +968,8 @@ export class Player {
                 this.bombTarget(target, this.logicalMapCanvas.ctx)
                 this.bombImpact(target)
                 this.msgHandler.syncWithLogicalMapCanvas()
+                this.msgHandler.addExplosionParticleEffect(target)
+                this.msgHandler.startExplosionParticleEffect()
 
                 // bomb 对 players的effect
                 this.msgHandler.checkBombEffect(target)
