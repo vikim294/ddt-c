@@ -97,9 +97,11 @@ export class ExplosionParticleEffect {
     ctx: CanvasRenderingContext2D
     groups: ExplosionParticleGroup[] = []
     hasStarted: boolean = false
+    renderCanvasFunction: () => void
 
-    constructor(ctx: CanvasRenderingContext2D) {
+    constructor(ctx: CanvasRenderingContext2D, renderCanvasFunction: () => void) {
         this.ctx = ctx
+        this.renderCanvasFunction = renderCanvasFunction
     }
 
     addGroup(target: Point) {
@@ -110,6 +112,8 @@ export class ExplosionParticleEffect {
     anim(timestamp: number) {
         if(this.groups.length === 0) {
             this.hasStarted = false
+            this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height)
+            this.renderCanvasFunction()
             return
         }
 
@@ -128,6 +132,8 @@ export class ExplosionParticleEffect {
                 group.draw()
             }
         })
+
+        this.renderCanvasFunction()
 
         requestAnimationFrame(this.anim.bind(this))
     }

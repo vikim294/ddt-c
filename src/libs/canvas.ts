@@ -6,7 +6,14 @@ export interface Point {
   y: number
 }
 
+export interface Size {
+  width: number
+  height: number
+}
+
 interface CanvasOptions {
+  logicalWidth: number
+  logicalHeight: number
   el?: HTMLCanvasElement
   willReadFrequently?: boolean
 }
@@ -14,60 +21,70 @@ interface CanvasOptions {
 type Map = string[][]
 
 export class Canvas {
-  readonly el: HTMLCanvasElement
+  readonly el: HTMLCanvasElement | OffscreenCanvas
   readonly ctx: CanvasRenderingContext2D
   readonly dpr: number
 
-  static logicalWidth = 1440
-  static logicalHeight = 900
+  readonly logicalWidth: number
+  readonly logicalHeight: number
 
   constructor(options: CanvasOptions) {
     const {
+      logicalWidth,
+      logicalHeight,
       el,
       willReadFrequently,
     } = options
 
+    this.logicalWidth = logicalWidth
+    this.logicalHeight = logicalHeight
+
     if(el) {
       this.el = el
+
+      // css
+      this.el.style.width = logicalWidth +'px'
+      this.el.style.height = logicalHeight +'px'
     }
     else {
-      this.el = document.createElement('canvas')
+      this.el = new OffscreenCanvas(logicalWidth, logicalHeight)
     }
 
     this.dpr = window.devicePixelRatio || 1
-
-    // css
-    this.el.style.width = Canvas.logicalWidth +'px'
-    this.el.style.height = Canvas.logicalHeight +'px'
 
     this.ctx = this.el.getContext('2d', {
         willReadFrequently
     }) as CanvasRenderingContext2D 
   }
-
 }
 
 interface LogicalCanvasOptions extends CanvasOptions {
   initMap?: Map
 }
 
+/**
+ * off-screen canvas
+ */
 export class LogicalCanvas extends Canvas {
 
-  constructor(options?: LogicalCanvasOptions) {
+  constructor(options: LogicalCanvasOptions) {
     super({
       ...options,
       willReadFrequently: true,
     })
 
     // logical canvas
-    this.el.width = Canvas.logicalWidth
-    this.el.height = Canvas.logicalHeight
+    this.el.width = this.logicalWidth
+    this.el.height = this.logicalHeight
 
-    this.ctx.fillStyle = '#00ff00'
-    this.ctx.strokeStyle = '#ff0000'
+    // 需要设置为2吗？
     this.ctx.lineWidth = 2
 
     if(options?.initMap) {
+      // logical map canvas
+      this.ctx.fillStyle = '#00ff00'
+      this.ctx.strokeStyle = '#ff0000'
+
       drawMap(this.el, this.ctx, options.initMap)
     }
   }
@@ -122,22 +139,35 @@ export class LogicalCanvas extends Canvas {
 
 } 
 
-export class DisplayedCanvas extends Canvas {
+interface ScreenCanvasOptions extends CanvasOptions {
+  initMap?: Map
+}
 
-
-  constructor(options: CanvasOptions) {
+/**
+ * off-screen canvas
+ */
+export class ScreenCanvas extends Canvas {
+  constructor(options: ScreenCanvasOptions) {
     super({
       ...options,
       willReadFrequently: false
     })
 
     // physical canvas
-    this.el.width = Canvas.logicalWidth * this.dpr
-    this.el.height = Canvas.logicalHeight * this.dpr
+    this.el.width = this.logicalWidth * this.dpr
+    this.el.height = this.logicalHeight * this.dpr
 
     this.ctx.scale(this.dpr, this.dpr)
 
     this.ctx.imageSmoothingEnabled = false; 
+
+    if(options?.initMap) {
+      // physical map canvas
+      this.ctx.fillStyle = '#00ff00'
+      this.ctx.strokeStyle = '#ff0000'
+
+      drawMap(this.el, this.ctx, options.initMap)
+    }
   }
 
   drawTrack(track: {
@@ -164,22 +194,18 @@ export class DisplayedCanvas extends Canvas {
       this.ctx.restore()
   }
 
-  syncWithLogicalCanvas(logicalMapCanvas: HTMLCanvasElement, logicalBombImpactCanvas: HTMLCanvasElement) {
-    const offscreenCanvas = new OffscreenCanvas(LogicalCanvas.logicalWidth, LogicalCanvas.logicalHeight)
-    const offscreenCanvasCtx = offscreenCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D 
-    offscreenCanvasCtx.reset()
-    // 把 logicalMapCanvas 绘制到 offscreenCanvas
-    offscreenCanvasCtx.drawImage(logicalMapCanvas, 0, 0)
-    // 把 logicalBombImpactCanvas 绘制到 offscreenCanvas (source-atop)
-    offscreenCanvasCtx.globalCompositeOperation = 'source-atop'
-    offscreenCanvasCtx.drawImage(logicalBombImpactCanvas, 0, 0)
-
-    // 把 offscreenCanvas 绘制到 displayed canvas
-    this.ctx.clearRect(0, 0, this.el.width, this.el.height)
-    this.ctx.drawImage(offscreenCanvas, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight, 0, 0, Canvas.logicalWidth, Canvas.logicalHeight);
+  setTranslate(translate: Point) {
+    const canvasEl = this.el as HTMLCanvasElement
+    canvasEl.style.transform = `translate(${translate.x}px, ${translate.y}px)`
   }
-
 }
+
+export type LayerType = 
+  'map' |
+  'inactive' |
+  'active' |
+  'bomb' |
+  'explosionParticle'
 
 export function setCtxPathByMap(ctx: CanvasRenderingContext2D, partMap: string[]) {
   partMap.forEach((item, index) => {
@@ -196,7 +222,7 @@ export function setCtxPathByMap(ctx: CanvasRenderingContext2D, partMap: string[]
   ctx.closePath()
 }
 
-function drawMap(el: HTMLCanvasElement, ctx: CanvasRenderingContext2D, map: Map) {
+function drawMap(el: HTMLCanvasElement | OffscreenCanvas, ctx: CanvasRenderingContext2D, map: Map) {
   ctx.clearRect(0, 0, el.width, el.height)
 
   // 先得到所有部分的 内部填充 绘制到 map上

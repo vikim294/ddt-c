@@ -5,8 +5,8 @@ import { useEffect, useRef } from "react";
 import { useState } from "react";
 import { io, Socket } from "socket.io-client";
 import "./index.scss";
-import { DisplayedCanvas, LogicalCanvas, Point } from "../../libs/canvas";
-import { MULTIPLE, MULTIPLE_SIMPLE } from "../../assets/maps";
+import { ScreenCanvas, LogicalCanvas, Point } from "../../libs/canvas";
+import { MULTIPLE, MULTIPLE_SIMPLE, MULTIPLE_SIMPLE2 } from "../../assets/maps";
 import {
   Bomb,
   BombTarget,
@@ -19,8 +19,12 @@ import { SOCKET_SERVER_URL } from "../../utils/conf";
 
 import bombImage from "../../assets/bomb.png"
 import { ExplosionParticleEffect } from "../../libs/particleEffect";
+import MiniMap from "./components/MiniMap";
+import useMsgHandler from "../../hooks/useMsgHandler";
+import { Viewport } from "../../libs/viewport";
+import { CAMERA_FOCUS_DURATION } from "../../libs/constants";
 
-interface ClientPlayer {
+export interface ClientPlayer {
   id: string;
   level: number;
 }
@@ -54,22 +58,6 @@ interface FiringData {
   activePlayerIsTrident: boolean;
 }
 
-export interface MsgHandler {
-  getClientPlayerId: () => string;
-  isActivePlayer: (playerId: string) => boolean;
-  onPlayerFall: () => void;
-  syncBombDataBeforePlayerFires: (bombsData: Bomb[], isTrident?: boolean) => void;
-  syncWithLogicalMapCanvas: () => void;
-  addExplosionParticleEffect: (target: Point)=> void
-  startExplosionParticleEffect: ()=> void
-  checkBombEffect: (bombTarget: BombTarget) => void;
-  setActivePlayerAngle: (angle: number) => void;
-  resetActivePlayerFiringPower: () => void;
-  getIsDrawingBomb: () => boolean;
-  setIsDrawingBomb: (isDrawingBomb: boolean) => void;
-  startNextTurn: () => void;
-}
-
 const Battlefield: React.FC = () => {
   // const [isFullScreen, setIsFullScreen] = useState(null)
   // const [print, setPrint] = useState('')
@@ -91,37 +79,64 @@ const Battlefield: React.FC = () => {
   const [isOperationDone, setIsOperationDone] = useState(false);
 
   const logicalMapCanvas = useRef<LogicalCanvas>();
-  const logicalBombImpactCanvas = useRef<LogicalCanvas>();
-
-  const mapCanvasRef = useRef(null);
-  const mapCanvas = useRef<DisplayedCanvas>();
-
-  const inactiveCanvasRef = useRef(null);
-  const inactiveCanvas = useRef<DisplayedCanvas>();
-
-  const activeCanvasRef = useRef(null);
-  const activeCanvas = useRef<DisplayedCanvas>();
-
-  const bombCanvasRef = useRef(null);
-  const bombCanvas = useRef<DisplayedCanvas>();
-
   const bombDrawingOffscreenCanvas = useRef<LogicalCanvas>();
-
   const isDrawingBombRef = useRef(false);
 
-  const explosionParticleCanvasRef = useRef(null);
-  const explosionParticleCanvas = useRef<DisplayedCanvas>();
+  const mapCanvasRef = useRef(null);
+  const mapCanvas = useRef<ScreenCanvas>();
 
-  const explosionParticleEffectRef = useRef<ExplosionParticleEffect>()
+  const bombImpactCanvas = useRef<ScreenCanvas>();
+
+  const inactiveCanvasRef = useRef(null);
+  const inactiveCanvas = useRef<ScreenCanvas>();
+
+  const activeCanvasRef = useRef(null);
+  const activeCanvas = useRef<ScreenCanvas>();
+
+  const bombCanvasRef = useRef(null);
+  const bombCanvas = useRef<ScreenCanvas>();
+  
+  const explosionParticleCanvasRef = useRef(null);
+  const explosionParticleCanvas = useRef<ScreenCanvas>();
+
+  const explosionParticleEffectRef = useRef<ExplosionParticleEffect | null>(null)
 
   const testCanvasRef = useRef(null);
-  const testCanvas = useRef<DisplayedCanvas>();
+  const testCanvas = useRef<ScreenCanvas>();
+
+  // 根据 settings 决定 viewport
+  const [viewportSize, setViewportSize] = useState({
+    width: 800,
+    height: 600
+  })
+
+  const [miniViewportTranslate, setMiniViewportTranslate] = useState({
+      x: 0,
+      y: 0
+  })
+
+  const miniMapSizeRef = useRef({
+    miniMapWidth: 0,
+    miniMapHeight: 0,
+    miniViewportWidth: 0,
+    miniViewportHeight: 0,
+  })
+
+  const viewportRef = useRef<Viewport | null>(null)
+
+  const viewportToMiniViewportRatioRef = useRef<{
+    widthRatio: number | null,
+    heightRatio: number | null
+  }>({
+    widthRatio: null,
+    heightRatio: null
+  })
 
   const playerRefs = useRef<Player[]>([]);
-  const activePlayer = useRef<Player>();
-  const clientPlayer = useRef<Player>();
+  const activePlayer = useRef<Player | null>(null);
+  const clientPlayer = useRef<Player | null>(null);
 
-  const socketRef = useRef<Socket>();
+  const socketRef = useRef<Socket | null>(null);
   // ---
   const [clientPlayerId, setClientPlayerId] = useState("");
   const [clientPlayerName, setClientPlayerName] = useState("");
@@ -186,85 +201,20 @@ const Battlefield: React.FC = () => {
     }
   } 
 
-  const syncWithLogicalMapCanvas = () => {
-    if(logicalMapCanvas.current && logicalBombImpactCanvas.current) {
-      mapCanvas.current?.syncWithLogicalCanvas(logicalMapCanvas.current.el, logicalBombImpactCanvas.current.el)
-    }
-  }
-
-  const msgHandler = useRef({
-    getClientPlayerId() {
-      return client.id;
-    },
-
-    isActivePlayer(playerId: string) {
-      return activePlayer.current?.id === playerId;
-    },
-
-    onPlayerFall() {
-      socketRef.current?.emit(
-        "activePlayerFall",
-        activePlayer.current?.centerPoint
-      );
-    },
-
-    syncBombDataBeforePlayerFires(bombsData: Bomb[], isTrident?: boolean) {
-      socketRef.current?.emit("syncBombDataBeforePlayerFires", bombsData, isTrident);
-    },
-
-    syncWithLogicalMapCanvas,
-
-    addExplosionParticleEffect(target: Point) {
-      explosionParticleEffectRef.current?.addGroup(target)
-    },
-
-    startExplosionParticleEffect() {
-      explosionParticleEffectRef.current?.start()
-    },
-
-    checkBombEffect(bombTarget: BombTarget) {
-      playerRefs.current.forEach((player) => {
-        checkBombEffect(bombTarget, player);
-      });
-    },
-
-    setActivePlayerAngle(angle: number) {
-      // 如果当前clientPlayer 是 activePlayer
-      if (clientPlayer.current?.id === activePlayer.current?.id) {
-        // 更新 angle状态
-        setClientPlayerAngle(angle);
-      }
-    },
-
-    resetActivePlayerFiringPower() {
-      // 重置 this.firingPower
-      if (activePlayer.current) {
-        activePlayer.current.firingPower = 0;
-      }
-      if (isActivePlayer()) {
-        // 更新页面状态
-        setClientPlayerFiringPower(0);
-      }
-    },
-
-    getIsDrawingBomb() {
-      return isDrawingBombRef.current;
-    },
-
-    setIsDrawingBomb(isDrawingBomb: boolean) {
-      isDrawingBombRef.current = isDrawingBomb;
-    },
-
-    startNextTurn() {
-      if (isActivePlayer()) {
-        setTimeout(() => {
-          socketRef.current?.emit("startNextTurn");
-        }, 2000);
-      }
-    },
-  });
-
-  //
+  // msgHandler
+  const msgHandler = useMsgHandler({
+    client,
+    clientPlayer,
+    activePlayer,
+    socketRef,
+    explosionParticleEffectRef,
+    playerRefs,
+    isDrawingBombRef,
+    isActivePlayer,
+    checkBombEffect,
+    setClientPlayerAngle,
+    setClientPlayerFiringPower
+  })
 
   useEffect(() => {
     function connect() {
@@ -626,16 +576,24 @@ const Battlefield: React.FC = () => {
       else {
         const bombsData = bombData
 
+        const newBombs: Bomb[] = []
         bombsData.forEach(bomb => {
           // 注意 不能覆盖 clients之前就已经存在的那些bomb对象，因为不同设备的时间 不一定完全相同，所以bomb对象的firingTime 由设备自己决定
           if(activePlayer.current!.bombsData.find(_bomb => _bomb.id === bomb.id)) {
             return
           }
           else {
-            activePlayer.current!.bombsData.push(bomb)
+            newBombs.push(bomb)
           }
         })
-        
+
+        // TODO
+        // if(bombsData.length > 1) {
+        //   transitionViewportOnActivePlayer()
+        // }
+
+        activePlayer.current!.bombsData.push(...newBombs)
+
         // fire
         activePlayer.current.numberOfFires--;
         activePlayer.current.playerFires();
@@ -644,6 +602,7 @@ const Battlefield: React.FC = () => {
         if (isActivePlayer()) {
           activePlayer.current.checkPlayerNumberOfFires();
         }
+        
       }
     }
 
@@ -657,7 +616,7 @@ const Battlefield: React.FC = () => {
 
       activePlayer.current = playerRefs.current.find(
         (player) => player.id === nextTurnData.activePlayerId
-      );
+      )!;
       if (!activePlayer.current) return
       // reset
       setActivePlayerIsOperationDone(true)
@@ -668,58 +627,145 @@ const Battlefield: React.FC = () => {
       playerRefs.current.forEach((player) => {
         player.drawPlayer();
       });
+
+      transitionViewportOnActivePlayer()
     }
 
     if (isReadyToInit) {
       if (
-        !mapCanvasRef.current ||
-        !inactiveCanvasRef.current ||
-        !activeCanvasRef.current ||
-        !bombCanvasRef.current ||
-        !explosionParticleCanvasRef.current ||
-        !testCanvasRef.current
+        !mapCanvasRef.current || 
+        !inactiveCanvasRef.current || 
+        !activeCanvasRef.current || 
+        !bombCanvasRef.current || 
+        !explosionParticleCanvasRef.current
       ) {
-        console.error("canvasRef is null");
+        console.error("canvas is null");
         return;
       }
 
       console.log("initBattlefield");
 
+      const {
+        id, name, size, terrain, spawnPoints
+      } = MULTIPLE_SIMPLE2
+
+      // logicalMap
+      // 根据 map 决定
+      const logicalMapWidth = size.width
+      const logicalMapHeight = size.height
+      const logicalMapRatio = logicalMapWidth / logicalMapHeight
+
       logicalMapCanvas.current = new LogicalCanvas({
-        initMap: MULTIPLE_SIMPLE,
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        initMap: terrain.soft,
       });
 
-      logicalBombImpactCanvas.current = new LogicalCanvas();
+      // mapCanvas
+      mapCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        initMap: terrain.soft,
+        el: mapCanvasRef.current
+      })
 
-      mapCanvas.current = new DisplayedCanvas({
-        el: mapCanvasRef.current,
+      // mini map
+      let miniMapWidth = null
+      let miniMapHeight = null
+      
+      if(logicalMapWidth >= logicalMapHeight) {
+          // map的width较长，所以Mini map的width为200
+          miniMapWidth = 200
+      
+          // 根据map的长宽比，得到mini map的height
+          miniMapHeight = miniMapWidth / logicalMapRatio
+      }   
+      else {
+          // map的height较长，所以Mini map的height为200
+          miniMapHeight = 200
+      
+          miniMapWidth = miniMapHeight * logicalMapRatio
+      }
+
+      // mini viewport
+      const miniViewportWidth = viewportSize.width * miniMapWidth / logicalMapWidth
+      const miniViewportHeight = viewportSize.height * miniMapHeight / logicalMapHeight
+
+      viewportToMiniViewportRatioRef.current = {
+        widthRatio: viewportSize.width / miniViewportWidth,
+        heightRatio: viewportSize.height / miniViewportHeight,
+      }
+
+      miniMapSizeRef.current = {
+        miniMapWidth,
+        miniMapHeight,
+        miniViewportWidth,
+        miniViewportHeight
+      }
+
+      // bombImpact
+      bombImpactCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+      })
+
+      // inactive
+      inactiveCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        el: inactiveCanvasRef.current
+      })
+
+      // active
+      activeCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        el: activeCanvasRef.current
+      })
+
+      // bomb canvas
+      bombCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        el: bombCanvasRef.current
+      })
+
+      // bombDrawingOffscreenCanvas
+      bombDrawingOffscreenCanvas.current = new LogicalCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+      })
+
+      // explosionParticleCanvas
+      explosionParticleCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        el: explosionParticleCanvasRef.current
       });
-      syncWithLogicalMapCanvas()
 
-      inactiveCanvas.current = new DisplayedCanvas({
-        el: inactiveCanvasRef.current,
-      });
+      // viewport
+      viewportRef.current = new Viewport({
+        logicalMapSize: {
+          width: logicalMapWidth,
+          height: logicalMapHeight
+        },
+        viewportSize,
 
-      activeCanvas.current = new DisplayedCanvas({
-        el: activeCanvasRef.current,
-      });
+        mapCanvas: mapCanvas.current,
+        inactiveCanvas: inactiveCanvas.current,
+        activeCanvas: activeCanvas.current,
+        bombCanvas: bombCanvas.current,
+        explosionParticleCanvas: explosionParticleCanvas.current,
 
-      bombCanvas.current = new DisplayedCanvas({
-        el: bombCanvasRef.current,
-      });
+        onViewportUpdate,
+      })
 
-      bombDrawingOffscreenCanvas.current = new LogicalCanvas();
-
-      explosionParticleCanvas.current = new DisplayedCanvas({
-        el: explosionParticleCanvasRef.current,
-      });
-
-      testCanvas.current = new DisplayedCanvas({
-        el: testCanvasRef.current,
-      });
+      viewportRef.current.updateViewport(true)
 
       // ExplosionParticleEffect
-      explosionParticleEffectRef.current = new ExplosionParticleEffect(explosionParticleCanvas.current.ctx)
+      explosionParticleEffectRef.current = new ExplosionParticleEffect(explosionParticleCanvas.current.ctx, () => {
+        viewportRef.current?.setLayerTranslate('explosionParticle')
+      })
 
       // TODO 等待所有players的bomb image都加载完毕
       const playerBombImage = new Image()
@@ -741,13 +787,16 @@ const Battlefield: React.FC = () => {
           msgHandler: msgHandler.current,
 
           logicalMapCanvas: logicalMapCanvas.current!,
-          logicalBombImpactCanvas: logicalBombImpactCanvas.current!,
+          mapCanvas: mapCanvas.current!,
+          bombImpactCanvas: bombImpactCanvas.current!,
           inactiveCanvas: inactiveCanvas.current!,
           activeCanvas: activeCanvas.current!,
           bombCanvas: bombCanvas.current!,
           bombDrawingOffscreenCanvas: bombDrawingOffscreenCanvas.current!,
           explosionParticleCanvas: explosionParticleCanvas.current!,
           testCanvas: testCanvas.current!,
+
+          viewport: viewportRef.current!,
 
           id,
           name,
@@ -768,7 +817,6 @@ const Battlefield: React.FC = () => {
         if (player.id === activePlayerId) {
           // set activePlayer
           activePlayer.current = player;
-
         }
 
         if (player.id === client.id) {
@@ -818,11 +866,20 @@ const Battlefield: React.FC = () => {
       document.body.addEventListener("keydown", onKeydown);
       document.body.addEventListener("keyup", onKeyup);
 
-      // 
+      // viewportRef.current.pathPoints = [...spawnPoints]
+
       playerBombImage.onload = function() { 
-        console.log('bomb 加载完成')
-        setIsNextTurnNotiVisible(true)
-        setActivePlayerIsOperationDone(true)
+        console.log('bomb image 加载完成')
+
+        // viewport停留在map中间 等待2s
+        setTimeout(() => {
+          // --- 游戏开始前的 viewport预览动画
+          // 过渡到一个player -> 等待2s -> 过渡到下一个player -> ... ->
+          // 过渡到activePlayer
+          viewportPreviewAnim(spawnPoints, 0)
+
+        }, CAMERA_FOCUS_DURATION);
+
       }
     }
 
@@ -859,14 +916,64 @@ const Battlefield: React.FC = () => {
     }
   }, [isNextTurnNotiVisible])
 
-  const handleDisconnect = () => {
+  function handleDisconnect() {
     console.log("handleDisconnect");
 
     console.log("离开战场");
     navigate("/gameRoom");
   };
 
-  const handleSkipAction = () => {
+  function onViewportUpdate() {
+    if(!viewportRef.current) return
+    // 根据 viewport 当前的位置，计算 miniViewport 的位置
+    const miniViewportTranslateX = (-viewportRef.current.translate.x / viewportRef.current.logicalMapSize.width) * miniMapSizeRef.current.miniMapWidth
+    const miniViewportTranslateY = (-viewportRef.current.translate.y / viewportRef.current.logicalMapSize.height) * miniMapSizeRef.current.miniMapHeight
+    setMiniViewportTranslate({
+        x: miniViewportTranslateX,
+        y: miniViewportTranslateY
+    })
+  }
+
+  function onMiniMapUpdate(translateX: number, translateY: number) {
+    // 同步viewport
+    const viewportTranslateX = -translateX * viewportToMiniViewportRatioRef.current.widthRatio!
+    const viewportTranslateY = -translateY * viewportToMiniViewportRatioRef.current.heightRatio!
+    viewportRef.current?.setViewportTranslate({
+      x: viewportTranslateX,
+      y: viewportTranslateY
+    })
+    viewportRef.current?.updateViewport(false)
+  }
+
+  function transitionViewportOnActivePlayer() {
+    if(viewportRef.current) {
+      viewportRef.current.transitionViewportToTarget(activePlayer.current!.centerPoint)
+    }
+  }
+
+  function viewportPreviewAnim(spawnPoints: Point[], i : number) {
+    viewportRef.current?.transitionViewportToTarget(spawnPoints[i], () => {
+      setTimeout(() => {
+        const next = i + 1
+        if(next >= spawnPoints.length) {
+          // 预览动画结束
+          setIsNextTurnNotiVisible(true)
+          setActivePlayerIsOperationDone(true)
+
+          viewportRef.current?.transitionViewportToTarget(activePlayer.current!.centerPoint, () => {
+            if(viewportRef.current) {
+              viewportRef.current.isGamePreviewOver = true
+            }
+          })
+        }
+        else {
+          viewportPreviewAnim(spawnPoints, next)
+        }
+      }, CAMERA_FOCUS_DURATION)
+    })
+  }
+
+  function handleSkipAction() {
     if (!isActivePlayer()) return;
 
     socketRef.current?.emit("startNextTurn");
@@ -882,14 +989,16 @@ const Battlefield: React.FC = () => {
       {!isReadyToInit ? (
         <LoadingMask />
       ) : (
-        <div id="content">
-          <div id="canvas-container">
+        <>
+          <div id="viewport" style={{
+            width: viewportSize.width,
+            height: viewportSize.height
+          }}> 
             <canvas id="map" ref={mapCanvasRef}></canvas>
             <canvas id="inactive" ref={inactiveCanvasRef}></canvas>
             <canvas id="active" ref={activeCanvasRef}></canvas>
             <canvas id="bomb" ref={bombCanvasRef}></canvas>
             <canvas id="explosionParticle" ref={explosionParticleCanvasRef}></canvas>
-            <canvas id="test" ref={testCanvasRef}></canvas>
           </div>
           <div id="ui-container">
             <div className="left">
@@ -935,6 +1044,14 @@ const Battlefield: React.FC = () => {
               }
             </div>
             <div className="right">
+
+              <MiniMap miniViewportTranslate={miniViewportTranslate} miniMapSize={miniMapSizeRef.current} viewportRef={viewportRef} onMiniMapUpdate={onMiniMapUpdate} setMiniViewportTranslate={setMiniViewportTranslate}></MiniMap>
+
+              <div className="item">
+                <button onClick={() => {
+                  transitionViewportOnActivePlayer()
+                }}>anim</button>
+              </div>
               <div className="item">activePlayerId: {activePlayerId}</div>
               <div className="item">skills: {activePlayerSkills}</div>
               <div className="item">
@@ -1044,7 +1161,7 @@ const Battlefield: React.FC = () => {
           </div>
           {tip && <Tip tip={tip} />}
           {isNextTurnNotiVisible && <NextTurnNoti activePlayerName={activePlayer.current?.name} />}
-        </div>
+        </>
       )}
     </div>
   );

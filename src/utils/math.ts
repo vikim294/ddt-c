@@ -20,3 +20,12 @@ export function getDistanceBetweenTwoPoints(pointA: Point, pointB: Point) {
   const dx = pointB.x - pointA.x
   return Math.sqrt(dy * dy + dx * dx)
 }
+
+/**
+ * 
+ * @param x 在0到1
+ * @returns 0到1
+ */
+export function easeOut(x: number) {
+  return 1 - Math.pow(1 - x, 3);
+}

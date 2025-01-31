@@ -1,13 +1,24 @@
 #battle-field {
 
+    #viewport {
+        position: absolute;
+        overflow: hidden;
+    }
+
     canvas {
         // display: none;
         position: absolute;
+        top: 0;
+        left: 0;
         z-index: 1;
     }
 
     #map {
         // display: block;
+    }
+
+    #camera {
+        // background-color: #fcfcfc;
     }
 
     #active {}
@@ -20,13 +31,13 @@
     #ui-container {
 
         .left {
-            position: fixed;
+            position: absolute;
             left: 0;
             z-index: 999;
         }
 
         .center {
-            position: fixed;
+            position: absolute;
             left: 50%;
             z-index: 999;
             transform: translate(-50%, 0);
@@ -49,9 +60,26 @@
         }
 
         .right {
-            position: fixed;
+            position: absolute;
             right: 0;
             z-index: 999;
+
+            #mini-map {
+                position: relative;
+                background-color: #ededed91;
+
+
+                #mini-viewport {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    /* width: 100px; */
+                    /* height: 60px; */
+                    background-color: #cccccccf;
+                    cursor: pointer;
+                }
+        
+            }
         }
 
         button {
@@ -70,7 +98,7 @@
 
     #tip {
         .tip-mask {
-            position: fixed;
+            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
@@ -80,7 +108,7 @@
         }
 
         .tip-content {
-            position: fixed;
+            position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
@@ -90,7 +118,7 @@
     }
 
     #next-turn-noti {
-        position: fixed;
+        position: absolute;
         top: 100px;
         left: 50%;
         transform: translate(-50%, 0);
