@@ -25,13 +25,13 @@ const router = createBrowserRouter([
 
 type Props = { children: ReactNode }
 
-const ViewPort: React.FC<Props> = ({children}) => {
+const App: React.FC<Props> = ({children}) => {
 
     const viewportWidth = 800
     const viewportHeight = 600
 
     return (
-        <div id="viewport" style={{
+        <div id="app" style={{
             width: viewportWidth,
             height: viewportHeight,
         }}>
@@ -41,7 +41,7 @@ const ViewPort: React.FC<Props> = ({children}) => {
 }
 
 createRoot(document.getElementById('root')!).render(
-    <ViewPort>
+    <App>
         <RouterProvider router={router}></RouterProvider>
-    </ViewPort>
+    </App>
 )

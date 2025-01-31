@@ -1,6 +1,5 @@
 import { MAP_BOUNDARY_GAP } from "./constants"
 
-
 export interface Point {
   x: number
   y: number
@@ -136,16 +135,12 @@ export class LogicalCanvas extends Canvas {
       // console.log('angle', angle)
       return Math.floor(angle)
   }
-
 } 
 
 interface ScreenCanvasOptions extends CanvasOptions {
   initMap?: Map
 }
 
-/**
- * off-screen canvas
- */
 export class ScreenCanvas extends Canvas {
   constructor(options: ScreenCanvasOptions) {
     super({
@@ -197,6 +192,12 @@ export class ScreenCanvas extends Canvas {
   setTranslate(translate: Point) {
     const canvasEl = this.el as HTMLCanvasElement
     canvasEl.style.transform = `translate(${translate.x}px, ${translate.y}px)`
+  }
+
+  drawFrom(sourceCanvas: ScreenCanvas) {
+    this.ctx.clearRect(0, 0, this.el.width, this.el.height)
+
+    this.ctx.drawImage(sourceCanvas.el, 0, 0, sourceCanvas.el.width, sourceCanvas.el.height, 0, 0, this.logicalWidth, this.logicalHeight)
   }
 }
 
@@ -254,7 +255,6 @@ function drawMap(el: HTMLCanvasElement | OffscreenCanvas, ctx: CanvasRenderingCo
   })
 }
 
-
 export function pointOutOfMap(point: Point, mapWidth: number, mapHeight: number) {
   const {
       x, y
@@ -269,4 +269,3 @@ export function toCartesianCoordinateY(y: number, mapHeight: number) {
 export function toCanvasCoordinateY(y: number, mapHeight: number) {
   return toCartesianCoordinateY(y, mapHeight)
 }
-

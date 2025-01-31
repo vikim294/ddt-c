@@ -4,7 +4,10 @@
     box-sizing: border-box;
 }
 
-#viewport {
+#app {
     position: relative;
     margin: auto;
+
+    box-sizing: content-box;
+    border: 1px solid #000;
 }

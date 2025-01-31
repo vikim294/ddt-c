@@ -110,6 +110,11 @@ const Battlefield: React.FC = () => {
     height: 600
   })
 
+  const viewportRef = useRef<Viewport | null>(null)
+
+  const miniMapCanvasRef = useRef(null);
+  const miniMapRef = useRef<ScreenCanvas>();
+  
   const [miniViewportTranslate, setMiniViewportTranslate] = useState({
       x: 0,
       y: 0
@@ -121,8 +126,6 @@ const Battlefield: React.FC = () => {
     miniViewportWidth: 0,
     miniViewportHeight: 0,
   })
-
-  const viewportRef = useRef<Viewport | null>(null)
 
   const viewportToMiniViewportRatioRef = useRef<{
     widthRatio: number | null,
@@ -637,7 +640,8 @@ const Battlefield: React.FC = () => {
         !inactiveCanvasRef.current || 
         !activeCanvasRef.current || 
         !bombCanvasRef.current || 
-        !explosionParticleCanvasRef.current
+        !explosionParticleCanvasRef.current ||
+        !miniMapCanvasRef.current
       ) {
         console.error("canvas is null");
         return;
@@ -702,6 +706,15 @@ const Battlefield: React.FC = () => {
         miniViewportWidth,
         miniViewportHeight
       }
+
+      // miniMapRef
+      miniMapRef.current = new ScreenCanvas({
+        logicalWidth: miniMapWidth,
+        logicalHeight: miniMapHeight,
+        el: miniMapCanvasRef.current
+      })
+
+      drawMiniMapFromMap()
 
       // bombImpact
       bombImpactCanvas.current = new ScreenCanvas({
@@ -797,6 +810,7 @@ const Battlefield: React.FC = () => {
           testCanvas: testCanvas.current!,
 
           viewport: viewportRef.current!,
+          miniMap: miniMapRef.current!,
 
           id,
           name,
@@ -879,7 +893,6 @@ const Battlefield: React.FC = () => {
           viewportPreviewAnim(spawnPoints, 0)
 
         }, CAMERA_FOCUS_DURATION);
-
       }
     }
 
@@ -943,6 +956,12 @@ const Battlefield: React.FC = () => {
       y: viewportTranslateY
     })
     viewportRef.current?.updateViewport(false)
+  }
+
+  function drawMiniMapFromMap() {
+    if(mapCanvas.current) {
+      miniMapRef.current?.drawFrom(mapCanvas.current)
+    }
   }
 
   function transitionViewportOnActivePlayer() {
@@ -1045,7 +1064,7 @@ const Battlefield: React.FC = () => {
             </div>
             <div className="right">
 
-              <MiniMap miniViewportTranslate={miniViewportTranslate} miniMapSize={miniMapSizeRef.current} viewportRef={viewportRef} onMiniMapUpdate={onMiniMapUpdate} setMiniViewportTranslate={setMiniViewportTranslate}></MiniMap>
+              <MiniMap ref={miniMapCanvasRef} miniViewportTranslate={miniViewportTranslate} miniMapSize={miniMapSizeRef.current} viewportRef={viewportRef} onMiniMapUpdate={onMiniMapUpdate} setMiniViewportTranslate={setMiniViewportTranslate}></MiniMap>
 
               <div className="item">
                 <button onClick={() => {

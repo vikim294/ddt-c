@@ -1,5 +1,9 @@
-import { useRef, useEffect, MouseEvent } from "react";
-import { Viewport } from "../../../libs/viewport";
+import "./index.scss"
+
+import { useRef, useEffect, MouseEvent, forwardRef } from "react";
+import { Viewport } from "../../../../libs/viewport";
+
+
 
 interface Props {
     miniViewportTranslate: {
@@ -20,7 +24,7 @@ interface Props {
     }>>
 }
 
-const MiniMap: React.FC<Props> = ({ miniViewportTranslate, miniMapSize, viewportRef, onMiniMapUpdate, setMiniViewportTranslate }) => {
+const MiniMap = forwardRef<HTMLCanvasElement, Props>(({ miniViewportTranslate, miniMapSize, viewportRef, onMiniMapUpdate, setMiniViewportTranslate }, ref) => {
     const {
         miniMapWidth,
         miniMapHeight,
@@ -107,6 +111,7 @@ const MiniMap: React.FC<Props> = ({ miniViewportTranslate, miniMapSize, viewport
             width: miniMapWidth,
             height: miniMapHeight
         }}>
+            <canvas id='mini-map-canvas' ref={ref}></canvas>
             <div id="mini-viewport" style={{
                 width: miniViewportWidth,
                 height: miniViewportHeight,
@@ -115,6 +120,6 @@ const MiniMap: React.FC<Props> = ({ miniViewportTranslate, miniMapSize, viewport
             </div>
         </div>
     )
-}
+})
 
 export default MiniMap

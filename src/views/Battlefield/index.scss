@@ -10,7 +10,6 @@
         position: absolute;
         top: 0;
         left: 0;
-        z-index: 1;
     }
 
     #map {
@@ -64,22 +63,6 @@
             right: 0;
             z-index: 999;
 
-            #mini-map {
-                position: relative;
-                background-color: #ededed91;
-
-
-                #mini-viewport {
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    /* width: 100px; */
-                    /* height: 60px; */
-                    background-color: #cccccccf;
-                    cursor: pointer;
-                }
-        
-            }
         }
 
         button {

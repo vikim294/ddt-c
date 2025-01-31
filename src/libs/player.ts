@@ -31,6 +31,7 @@ export interface PlayerOptions {
   testCanvas: ScreenCanvas
 
   viewport: Viewport
+  miniMap: ScreenCanvas
 
   id: string
   name: string
@@ -85,6 +86,7 @@ export class Player {
   testCanvas: ScreenCanvas
 
   viewport: Viewport
+  miniMap: ScreenCanvas
 
   id: string
   name: string
@@ -146,6 +148,7 @@ export class Player {
       testCanvas,
 
       viewport,
+      miniMap,
 
       id,
       name,
@@ -170,6 +173,7 @@ export class Player {
     this.testCanvas = testCanvas
 
     this.viewport = viewport
+    this.miniMap = miniMap
 
     this.id = id
     this.name = name
@@ -558,6 +562,7 @@ export class Player {
 
     // 更新player position data
     this.updatePlayerPositionData()
+    this.drawPlayer()
   }
 
   calculateAndDrawPlayerByPoint(point: Point) {
@@ -623,6 +628,7 @@ export class Player {
         x: this.centerPoint.x,
         y: this.centerPoint.y
     }
+
     if(this.direction === 'right') {
         // 如果 right point 和 stand point 的角度 > 65
          return this.getPlayerAngleByTwoTerrainPoints(this.rightPoint, standPoint) > 65
@@ -638,15 +644,16 @@ export class Player {
         x: this.centerPoint.x,
         y: this.centerPoint.y
     }
+    let d = null
+
     if(this.direction === 'right') {
         // 如果 right point 和 stand point 的距离 <= 5px
-        const d = getDistanceBetweenTwoPoints(standPoint, this.rightPoint)
-        return d <= 5
+        d = getDistanceBetweenTwoPoints(standPoint, this.rightPoint)
     }
     else {
-        const d = getDistanceBetweenTwoPoints(standPoint, this.leftPoint)
-        return d <= 5
+        d = getDistanceBetweenTwoPoints(standPoint, this.leftPoint)
     }
+    return d <= 5
   }
 
   playerFall(centerPoint: Point) {
@@ -687,6 +694,7 @@ export class Player {
     }
 
     console.info('player掉进地图外了！')
+    // TODO
   }
 
   playerFallAnim(timestamp: number) {
@@ -704,8 +712,8 @@ export class Player {
     const y = yA + (yB - yA) * progress
     this.centerPoint.x = Math.floor(x)
     this.centerPoint.y = Math.floor(y)
+
     this.viewport.focusViewportOnTarget(this.centerPoint, 'playerMove')
-    
     this.drawPlayer()
 
     if(progress === 1) {
@@ -749,7 +757,6 @@ export class Player {
     this.rightPoint = rightPoint
     this.angle = angle
 
-    this.drawPlayer()
     this.updatePlayerPositionDataOnPage()
   }
 
@@ -998,6 +1005,7 @@ export class Player {
                 this.bombTarget(target, this.logicalMapCanvas.ctx)
                 this.bombTarget(target, this.mapCanvas.ctx)
                 this.bombImpact(target)
+                this.miniMap.drawFrom(this.mapCanvas)
 
                 this.msgHandler.addExplosionParticleEffect(target)
                 this.msgHandler.startExplosionParticleEffect()
