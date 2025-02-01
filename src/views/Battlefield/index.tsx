@@ -49,7 +49,7 @@ interface PlayerData {
   weapon: Weapon;
 }
 
-type PlayerSkills = 'oneMore' | 'twoMore'
+type PlayerSkills = 'oneMore' | 'twoMore' | 'plane'
 
 interface FiringData {
   activePlayerWeaponAngle: number;
@@ -481,10 +481,14 @@ const Battlefield: React.FC = () => {
         case 'oneMore': {
           activePlayer.current.numberOfFires++;
           setActivePlayerSkills((value) => value + "+1");
-    
           break;
         }
         case 'twoMore': {
+          break;
+        }
+        case 'plane': {
+          activePlayer.current.isPaperPlane = true
+          setActivePlayerSkills('plane');
           break;
         }
         default:
@@ -1094,6 +1098,18 @@ const Battlefield: React.FC = () => {
                   }}
                 >
                   III
+                </button>
+              </div>
+              <div className="item">
+                <button
+                    onClick={() => {
+                      if (!isActivePlayer()) return;
+                      if (!isActivePlayerOperationDone()) return;
+
+                      socketRef.current?.emit('playerUsesSkill', activePlayer.current?.id, 'plane')
+                    }}
+                  >
+                    plane
                 </button>
               </div>
               {/* <div className="item">

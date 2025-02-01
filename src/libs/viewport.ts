@@ -167,7 +167,7 @@ export class Viewport {
 
         this.setViewportTranslate(this.getSafeTranslateByFocusPoint(target))
         this.updateViewport(true, updateReason)
-        console.log('focusViewportOnTarget', this.translate)
+        // console.log('focusViewportOnTarget', this.translate)
     }
 
     // 将viewport 平滑地从 当前位置 -> 聚焦到target
@@ -180,7 +180,7 @@ export class Viewport {
         this.animStartTime = null
         this.targetTranslate = this.getSafeTranslateByFocusPoint(target)
         this.onViewportAnimOver = onViewportAnimOver || null
-        console.log('transitionViewportToTarget', this.startTranslate, this.targetTranslate)
+        // console.log('transitionViewportToTarget', this.startTranslate, this.targetTranslate)
         requestAnimationFrame(this.anim.bind(this))
     }
 

@@ -112,6 +112,7 @@ export class Player {
   fallStartPoint: Point
   fallTargetPoint: Point
   fallDuration: number
+  onFallingAnimOver: (() => void) | null
 
   health: number
   healthMax: number
@@ -129,6 +130,7 @@ export class Player {
   isOperationDone: boolean
   isTrident: boolean
   tridentBombs: Bomb[]
+  isPaperPlane: boolean
 
   static HEALTH_BAR_WIDTH: number = 40
   static HEALTH_BAR_HEIGHT: number = 10
@@ -216,6 +218,7 @@ export class Player {
         y: -1
     }
     this.fallDuration = -1
+    this.onFallingAnimOver = null
 
     this.health = healthMax
     this.healthMax = healthMax
@@ -237,6 +240,7 @@ export class Player {
 
     this.isTrident = false
     this.tridentBombs = []
+    this.isPaperPlane = false
 
     // this.drawPlayer()
 
@@ -574,29 +578,6 @@ export class Player {
       }
       else {
         console.log('locationData', locationData)
-        //   // 说明如果再走一步，那么左右两点的x将会相同！
-        //   // 所以需要根据目前的位置（目前 左右两点的x是不相同的！），决定应该block 还是 fall
-        //   if(this.direction === 'right') {
-        //       if(this.rightPoint.y > this.leftPoint.y) {
-        //           // fall
-        //           this.playerFall()
-        //       }
-        //       else if(this.rightPoint.y < this.leftPoint.y) {
-        //           // block
-        //           // 什么也不用干
-        //       }
-        //   }
-        //   else {
-        //       // left
-        //       if(this.leftPoint.y > this.rightPoint.y) {
-        //           // fall
-        //           this.playerFall()
-        //       }
-        //       else if(this.leftPoint.y < this.rightPoint.y) {
-        //           // block
-        //           // 什么也不用干
-        //       }
-        //   }
       }
   }
 
@@ -656,9 +637,12 @@ export class Player {
     return d <= 5
   }
 
-  playerFall(centerPoint: Point) {
+  playerFall(centerPoint: Point, isPaperPlane: boolean = false) {
     this.centerPoint = centerPoint
-    const inc = this.direction === 'right' ? 5 : -5
+    let inc = 0
+    if(!isPaperPlane) {
+        inc = this.direction === 'right' ? 5 : -5
+    }
     const newPlayerX = this.centerPoint.x + inc
     const { data } = this.logicalMapCanvas.ctx.getImageData(newPlayerX, this.centerPoint.y, 1, this.logicalMapCanvas.el.height - this.centerPoint.y)
     for(let i = 0; i < data.length; i += 4) {
@@ -718,8 +702,10 @@ export class Player {
 
     if(progress === 1) {
         this.isFallingDown = false
-        this.updatePlayerPositionData()
         this.isMoving = false
+        this.updatePlayerPositionData()
+        this.onFallingAnimOver && this.onFallingAnimOver()
+
         return
     }
     requestAnimationFrame(this.playerFallAnim.bind(this))
@@ -831,20 +817,22 @@ export class Player {
                         bomb.targetX = x
                         bomb.targetY = y
                         bomb.bombSec = sec
-            
-                        // 在离屏canvas上 bombTarget 
-                        // console.log('在离屏canvas上 bombTarget')
-                        this.bombTarget({
-                            x,
-                            y,
-                            damageRadius: bomb.damageRadius
-                        }, this.bombDrawingOffscreenCanvas.ctx)
+
+                        if(!this.isPaperPlane) {
+                            // 在离屏canvas上 bombTarget 
+                            // console.log('在离屏canvas上 bombTarget')
+                            this.bombTarget({
+                                x,
+                                y,
+                                damageRadius: bomb.damageRadius
+                            }, this.bombDrawingOffscreenCanvas.ctx)
+                        }
 
                         // this.testCanvas.ctx.clearRect(0, 0, this.testCanvas.el.width, this.testCanvas.el.height)
                         // this.testCanvas.ctx.drawImage(this.bombDrawingOffscreenCanvas.el, 0, 0)
                         // this.testCanvas.drawTrack(bomb.track)
 
-                        console.log('count', count)
+                        // console.log('count', count)
 
                         return true
                     }
@@ -865,7 +853,7 @@ export class Player {
         bomb.bombSec = sec
         bomb.isOutOfMapBoundary = true
     }
-    console.log('count', count)
+    // console.log('count', count)
 
     return false
   }
@@ -955,19 +943,21 @@ export class Player {
     this.msgHandler.syncBombDataBeforePlayerFires(this.bombsData)
   } 
 
+  handleFiringOver() {
+    console.log('firing over')
+
+    // 注意：有的逻辑 在所有clients上 都要执行，而有的逻辑（比如 start下一轮）只需要执行一次
+    this.msgHandler.setIsDrawingBomb(false)
+    this.msgHandler.resetActivePlayerFiringPower()
+    this.msgHandler.startNextTurn() 
+  }
+
   drawBomb() {
     if(this.bombsData.length === 0 && this.numberOfFires === 0) {
-        console.log('firing over')
-
-        this.msgHandler.setIsDrawingBomb(false)
-
-        this.msgHandler.resetActivePlayerFiringPower()
-
-        this.msgHandler.startNextTurn() 
+        this.handleFiringOver()
+        
         return
     }
-
-    requestAnimationFrame(this.drawBomb.bind(this))
 
     this.bombCanvas.ctx.clearRect(0, 0, this.bombCanvas.el.width, this.bombCanvas.el.height)
 
@@ -996,22 +986,45 @@ export class Player {
             
             // 如果 bomb是有效的
             if(!bomb.isOutOfMapBoundary) {
-                const target = {
-                    x: bomb.track[elapsedMs].x,
-                    y: bomb.track[elapsedMs].y,
-                    damageRadius: bomb.damageRadius,
-                    bombAngle: bomb.track[elapsedMs].bombAngle
+                const bombMs = bomb.bombSec * 1000
+                // console.log('bombMs', bombMs)
+
+                if(this.isPaperPlane) {
+                    // 在bombTarget之前(-5)的位置 进行 fallDown
+                    const target = {
+                        x: bomb.track[bombMs - 5].x,
+                        y: bomb.track[bombMs - 5].y
+                    }
+                    // this.bombCanvas.ctx.fillRect(target.x, target.y, 1, 1)
+
+                    this.onFallingAnimOver = () => {
+                        this.handleFiringOver()
+                        this.onFallingAnimOver = null
+                    }
+                    // activePlayer fall down
+                    this.playerFall(target, true)
+
+                    return
                 }
-                this.bombTarget(target, this.logicalMapCanvas.ctx)
-                this.bombTarget(target, this.mapCanvas.ctx)
-                this.bombImpact(target)
-                this.miniMap.drawFrom(this.mapCanvas)
+                else {
+                    const target = {
+                        x: bomb.targetX,
+                        y: bomb.targetY,
+                        damageRadius: bomb.damageRadius,
+                        bombAngle: bomb.track[bombMs].bombAngle
+                    }
 
-                this.msgHandler.addExplosionParticleEffect(target)
-                this.msgHandler.startExplosionParticleEffect()
-
-                // bomb 对 players的effect
-                this.msgHandler.checkBombEffect(target)
+                    this.bombTarget(target, this.logicalMapCanvas.ctx)
+                    this.bombTarget(target, this.mapCanvas.ctx)
+                    this.bombImpact(target)
+                    this.miniMap.drawFrom(this.mapCanvas)
+    
+                    this.msgHandler.addExplosionParticleEffect(target)
+                    this.msgHandler.startExplosionParticleEffect()
+    
+                    // bomb 对 players的effect
+                    this.msgHandler.checkBombEffect(target)
+                }
             }
 
             continue
@@ -1057,6 +1070,8 @@ export class Player {
         // bomb.x = x
         // bomb.y = y
     }
+
+    requestAnimationFrame(this.drawBomb.bind(this))
   }
 
   playerStartToFireTrident() {
