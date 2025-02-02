@@ -4,9 +4,14 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import GameRoom from './views/GameRoom/index.tsx'
 import BattleField from './views/Battlefield/index.tsx'
 import CanvasTest from './views/CanvasTest/index.tsx'
+import Home from './views/Home/index.tsx'
+import Register from './views/Register/index.tsx'
+import Login from './views/Login/index.tsx'
 
 import "./main.scss"
 import { ReactNode } from 'react'
+import { Provider } from 'react-redux'
+import store from "./store/index.ts"
 
 const router = createBrowserRouter([
     {
@@ -20,6 +25,18 @@ const router = createBrowserRouter([
     {
         path: '/canvasTest',
         element: <CanvasTest></CanvasTest>
+    },
+    {
+        path: '/',
+        element: <Home></Home>
+    },
+    {
+        path: '/register',
+        element: <Register></Register>
+    },
+    {
+        path: '/login',
+        element: <Login></Login>
     }
 ])
 
@@ -41,7 +58,10 @@ const App: React.FC<Props> = ({children}) => {
 }
 
 createRoot(document.getElementById('root')!).render(
-    <App>
-        <RouterProvider router={router}></RouterProvider>
-    </App>
+    // Provide the Redux store to the React app
+    <Provider store={store}>
+        <App>
+            <RouterProvider router={router}></RouterProvider>
+        </App>
+    </Provider>
 )
