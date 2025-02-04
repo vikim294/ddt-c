@@ -1,20 +1,14 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { UserInfo } from '../api/user'
 
 const getUserInfoFromLocalStorage = () => {
     const data = localStorage.getItem('userInfo')
-    if(!data) return {}
+    if(!data) return null
     return JSON.parse(data)
 }
 
-// 定义state的类型
-interface UserInfo {
-    id: number
-    name: string
-    token: string
-}
-
 // 初始值
-const initialValue: UserInfo = getUserInfoFromLocalStorage()
+const initialValue: UserInfo | null = getUserInfoFromLocalStorage()
 
 const userInfoSlice = createSlice({
   name: 'userInfo',
@@ -29,11 +23,14 @@ const userInfoSlice = createSlice({
       // Also, no return statement is required from these functions.
       state.value = action.payload
     },
+    clearUserInfo: (state) => {
+      state.value = null
+    }
   },
 })
 
 // Export the action creators
-export const { setUserInfo } = userInfoSlice.actions
+export const { setUserInfo, clearUserInfo } = userInfoSlice.actions
 
 // Export the slice reducer 
 export default userInfoSlice.reducer

@@ -12,23 +12,36 @@ import "./main.scss"
 import { ReactNode } from 'react'
 import { Provider } from 'react-redux'
 import store from "./store/index.ts"
+import { useAppSelector } from './store/hooks.ts'
+import { SocketProvider } from './context/socket.tsx'
+import OfflineMask from './views/OfflineMask/index.tsx'
+import NotFound from './views/NotFound/index.tsx'
+import Auth from './components/auth/index.tsx'
 
 const router = createBrowserRouter([
     {
-        path: '/gameRoom',
-        element: <GameRoom></GameRoom>
+        path: '/gameRoom/:gameRoomId',
+        element: <Auth>
+            <GameRoom></GameRoom>
+        </Auth>
     },
     {
         path: '/battleField',
-        element: <BattleField></BattleField>
+        element: <Auth>
+            <BattleField></BattleField>
+        </Auth>
     },
     {
         path: '/canvasTest',
-        element: <CanvasTest></CanvasTest>
+        element: <Auth>
+            <CanvasTest></CanvasTest>
+        </Auth>
     },
     {
         path: '/',
-        element: <Home></Home>
+        element: <Auth>
+            <Home></Home>
+        </Auth>
     },
     {
         path: '/register',
@@ -37,20 +50,24 @@ const router = createBrowserRouter([
     {
         path: '/login',
         element: <Login></Login>
+    },
+    {
+        path: '*',
+        element: <Auth>
+            <NotFound></NotFound>
+        </Auth>
     }
 ])
 
 type Props = { children: ReactNode }
 
 const App: React.FC<Props> = ({children}) => {
-
-    const viewportWidth = 800
-    const viewportHeight = 600
-
+    const resolution = useAppSelector((state) => state.resolution.value)
+    
     return (
         <div id="app" style={{
-            width: viewportWidth,
-            height: viewportHeight,
+            width: resolution.width,
+            height: resolution.height,
         }}>
             {children}
         </div>
@@ -60,8 +77,11 @@ const App: React.FC<Props> = ({children}) => {
 createRoot(document.getElementById('root')!).render(
     // Provide the Redux store to the React app
     <Provider store={store}>
-        <App>
-            <RouterProvider router={router}></RouterProvider>
-        </App>
+        <SocketProvider>
+            <App>
+                <RouterProvider router={router}></RouterProvider>
+                <OfflineMask></OfflineMask>
+            </App>
+        </SocketProvider>
     </Provider>
 )

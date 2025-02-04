@@ -23,6 +23,7 @@ import MiniMap from "./components/MiniMap";
 import useMsgHandler from "../../hooks/useMsgHandler";
 import { Viewport } from "../../libs/viewport";
 import { CAMERA_FOCUS_DURATION } from "../../libs/constants";
+import { useAppSelector } from "../../store/hooks";
 
 export interface ClientPlayer {
   id: string;
@@ -105,10 +106,8 @@ const Battlefield: React.FC = () => {
   const testCanvas = useRef<ScreenCanvas>();
 
   // 根据 settings 决定 viewport
-  const [viewportSize, setViewportSize] = useState({
-    width: 800,
-    height: 600
-  })
+  const resolution = useAppSelector((state) => state.resolution.value)
+  const viewportSize = resolution
 
   const viewportRef = useRef<Viewport | null>(null)
 

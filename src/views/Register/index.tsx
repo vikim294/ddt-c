@@ -1,23 +1,20 @@
 
 import { useEffect, useRef, useState } from "react"
 import "./index.scss"
-import axios from "axios"
-import { BACKEND_SERVER_URL } from "../../utils/conf"
+import { userLogin } from "../../api/user"
 
 function Register() {
 
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
 
-    function handleRegister() {
-
+    async function handleRegister() {
         console.log(username, password)
 
-        axios.post(`${BACKEND_SERVER_URL}/user/register`, {
+        await userLogin({
             username,
             password
         })
-
 
         setUsername('')
         setPassword('')

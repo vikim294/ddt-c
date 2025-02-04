@@ -1,9 +1,12 @@
 import "./index.scss";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 import { io, Socket } from "socket.io-client";
 import { SOCKET_SERVER_URL } from "../../utils/conf";
+import { SocketContext } from "../../context/socket";
+import { GameRoomInfo, getRoom } from "../../api/gameRoom";
 
 interface ClientPlayer {
   id: string;
@@ -34,8 +37,11 @@ const GameRoom: React.FC = () => {
   const [matchingTimeout, setMatchingTimeout] = useState(0);
   const matchingTimerIdRef = useRef<number | undefined>();
   const [matchedPlayers, setMatchedPlayers] = useState<ClientPlayer[]>([]);
-
   const navigate = useNavigate();
+  let { gameRoomId } = useParams();
+  const socket = useContext(SocketContext)
+  const [gameRoom, setGameRoom] = useState<GameRoomInfo | null>(null)
+  
 
   const toggleMatching = () => {
     setIsMatching((v) => !v);
@@ -58,6 +64,10 @@ const GameRoom: React.FC = () => {
       navigate("/battlefield?battlefieldId=" + battlefieldId);
     }, 2000);
   };
+
+  const goBackHome = () => {
+    navigate('/');
+  }
 
   useEffect(() => {
     console.log("effect");
@@ -149,13 +159,55 @@ const GameRoom: React.FC = () => {
     };
   }, [isMatching]);
 
+  async function getGameRoomInfo() {
+    try {
+      const res = await getRoom({
+        gameRoomId: gameRoomId!
+      })
+
+      console.log('getGameRoomInfo', res)
+
+      setGameRoom(res.data.gameRoom)
+    } catch (err) {
+      
+    }
+  }
+
+  useEffect(()=>{
+    if(gameRoomId) {
+      getGameRoomInfo()
+
+      socket?.on('enterRoom', getGameRoomInfo)
+    }
+
+    return () => {
+      socket?.off('enterRoom', getGameRoomInfo)
+    }
+  }, [gameRoomId])
+
   console.log("render");
+
+  if(!gameRoomId || !gameRoom) {
+    return '无效的房间'
+  }
 
   return (
     <div className="game-room">
       <h1>Game Room</h1>
 
       <div className="info">
+        <div>
+          <label>gameRoomId：</label>
+          <span>{gameRoomId}</span>
+        </div>
+
+
+
+
+
+
+
+        <div>------------------------------------</div>
         <div>
           <label>玩家ID：</label>
           <span>{player.id}</span>
@@ -188,6 +240,9 @@ const GameRoom: React.FC = () => {
         <div className="operation">
           <div onClick={toggleMatching} style={{display: 'block', padding: 10, backgroundColor: '#ccc', cursor: 'pointer'}}>
             {isMatching ? "取消匹配" : "开始匹配"}
+          </div>
+          <div>
+            <button onClick={goBackHome}>返回home</button>
           </div>
         </div>
       )}

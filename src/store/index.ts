@@ -1,11 +1,15 @@
 import { configureStore } from '@reduxjs/toolkit'
 import userInfoReducer from "./userInfoSlice"
+import resolutionReducer from "./resolutionSlice"
+import userOnlineStateReducer from "./userOnlineStateSlice"
 
 // creates a Redux store
 const store = configureStore({
   reducer: {
     // slice(state): reducer
-    userInfo: userInfoReducer
+    userInfo: userInfoReducer,
+    resolution: resolutionReducer,
+    userOnlineState: userOnlineStateReducer
   },
 })
 

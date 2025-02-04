@@ -2,10 +2,9 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom";
 import "./index.scss"
-import axios from "axios"
-import { BACKEND_SERVER_URL } from "../../utils/conf"
 import { setUserInfo } from "../../store/userInfoSlice";
 import { useAppDispatch } from "../../store/hooks";
+import { userLogin } from "../../api/user";
 
 function Login() {
     const navigate = useNavigate();
@@ -18,7 +17,7 @@ function Login() {
 
         console.log(username, password)
 
-        const res = await axios.post(`${BACKEND_SERVER_URL}/user/login`, {
+        const res = await userLogin({
             username,
             password
         })
@@ -26,10 +25,10 @@ function Login() {
         console.log(res)
 
         // 将 用户信息 和 token 存到本地存储，之后的请求携带token
-        localStorage.setItem('userInfo', JSON.stringify(res.data.data.userInfo))
+        localStorage.setItem('userInfo', JSON.stringify(res.data.userInfo))
 
         // 存 全局状态中
-        dispatch(setUserInfo(res.data.data.userInfo))
+        dispatch(setUserInfo(res.data.userInfo))
 
         // reset
         setUsername('')
