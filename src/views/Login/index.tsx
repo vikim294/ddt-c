@@ -1,15 +1,16 @@
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import "./index.scss"
 import { setUserInfo } from "../../store/userInfoSlice";
-import { useAppDispatch } from "../../store/hooks";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { userLogin } from "../../api/user";
+import { requestNewToken } from "../../utils/requestNewToken";
 
 function Login() {
     const navigate = useNavigate();
     const dispatch = useAppDispatch()
-
+     
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
 
@@ -17,26 +18,28 @@ function Login() {
 
         console.log(username, password)
 
-        const res = await userLogin({
+        const { data: { userInfo } } = await userLogin({
             username,
             password
         })
 
-        console.log(res)
+        console.log(userInfo)
 
         // 将 用户信息 和 token 存到本地存储，之后的请求携带token
-        localStorage.setItem('userInfo', JSON.stringify(res.data.userInfo))
+        localStorage.setItem('userInfo', JSON.stringify(userInfo))
 
         // 存 全局状态中
-        dispatch(setUserInfo(res.data.userInfo))
+        dispatch(setUserInfo(userInfo))
 
         // reset
         setUsername('')
         setPassword('')
 
+        // 登录成功 40mins后 发送更新token请求
+        requestNewToken()
+
         // 跳转到 home
         navigate("/");
-
     }
 
     return (

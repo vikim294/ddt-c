@@ -11,6 +11,8 @@ import { SocketContext } from "../../context/socket";
 function Home() {
     const userInfo = useAppSelector((state) => state.userInfo.value)
     const userOnlineState = useAppSelector((state) => state.userOnlineState.value)
+    const updateTokenTimerId = useAppSelector((state) => state.updateTokenTimer.value)
+
     const dispatch = useAppDispatch()
     const navigate = useNavigate();
     const socket = useContext(SocketContext)
@@ -22,8 +24,8 @@ function Home() {
     }
 
     function handleCreateGameRoom() {
-        if (userInfo) {
-            socket?.emit('createGameRoom', {
+        if (userInfo && socket) {
+            socket.emit('createGameRoom', {
                 hostId: userInfo.id
             })
         }
@@ -39,10 +41,10 @@ function Home() {
         })
 
         // 加入房间成功
-        socket?.emit('enterRoom')
-
-        // 跳转
-        navigate(`/gameRoom/${gameRoomId}`);
+        if (socket) {
+            // 跳转
+            navigate(`/gameRoom/${gameRoomId}`);
+        }
     }
 
     function logout() {
@@ -55,15 +57,16 @@ function Home() {
         }
         // 跳转到登录页
         navigate("/login");
+
+        // 取消 更新token请求（如果存在）
+        if(updateTokenTimerId) {
+            // console.log('updateTokenTimerId', updateTokenTimerId)
+            clearTimeout(updateTokenTimerId)
+        }
     }
 
-    // home页面加载后 
+    // home页面加载后
     useEffect(() => {
-        function onCreateGameRoom(gameRoomId: string) {
-            console.log('onCreateGameRoom')
-            navigate(`/gameRoom/${gameRoomId}`);
-        }
-
         async function getGameRoomList() {
             const res = await getRoomList()
 
@@ -71,21 +74,30 @@ function Home() {
 
             setGameRoomList(res.data.gameRoomList)
         }
-
-        // 添加消息监听
-        if (socket) {
-            socket.on("createGameRoom", onCreateGameRoom);
-        }
-
+  
         // 获取部分房间信息
         getGameRoomList()
+    }, [])
+
+    // socket连接后
+    useEffect(() => {
+        function onGameRoomCreated(gameRoomId: string) {
+            console.log('onGameRoomCreated', gameRoomId)
+
+            if (socket) {
+                navigate(`/gameRoom/${gameRoomId}`);
+            }
+        }
+
+        // 添加消息监听
+        socket?.on("gameRoomCreated", onGameRoomCreated);
 
         return () => {
             console.log("cleanup");
 
-            socket?.off("createGameRoom", onCreateGameRoom);
+            socket?.off("gameRoomCreated", onGameRoomCreated);
         }
-    }, [])
+    }, [socket])
 
     return (
         <div className="home">

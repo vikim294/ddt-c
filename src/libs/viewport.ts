@@ -10,6 +10,7 @@ interface Options {
     activeCanvas: ScreenCanvas
     bombCanvas: ScreenCanvas
     explosionParticleCanvas: ScreenCanvas
+    spaceParticleCanvas: ScreenCanvas
 
     onViewportUpdate: () => void
 }
@@ -36,6 +37,7 @@ export class Viewport {
     activeCanvas: ScreenCanvas
     bombCanvas: ScreenCanvas
     explosionParticleCanvas: ScreenCanvas
+    spaceParticleCanvas: ScreenCanvas
 
     onViewportUpdate: () => void
     onViewportAnimOver: (() => void) | null = null
@@ -54,6 +56,7 @@ export class Viewport {
         this.activeCanvas = options.activeCanvas
         this.bombCanvas = options.bombCanvas
         this.explosionParticleCanvas = options.explosionParticleCanvas
+        this.spaceParticleCanvas = options.spaceParticleCanvas
 
         this.onViewportUpdate = options.onViewportUpdate
     }
@@ -134,6 +137,11 @@ export class Viewport {
                 break;
             }
 
+            case 'spaceParticle': {
+                this.spaceParticleCanvas.setTranslate(this.translate)
+                break;
+            }
+
             default: {
                 throw new Error("invalid layerType!");
             }
@@ -145,6 +153,7 @@ export class Viewport {
         this.setLayerTranslate('map')
         this.setLayerTranslate('inactive')
         this.setLayerTranslate('active')
+        this.setLayerTranslate('spaceParticle')
 
         // playerMove时，不更新无关的layer
         if(updateReason !== "playerMove") {

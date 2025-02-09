@@ -18,7 +18,7 @@ import {
 import { SOCKET_SERVER_URL } from "../../utils/conf";
 
 import bombImage from "../../assets/bomb.png"
-import { ExplosionParticleEffect } from "../../libs/particleEffect";
+import { ExplosionParticleEffect, SpaceParticleEffect } from "../../libs/particleEffect";
 import MiniMap from "./components/MiniMap";
 import useMsgHandler from "../../hooks/useMsgHandler";
 import { Viewport } from "../../libs/viewport";
@@ -85,6 +85,9 @@ const Battlefield: React.FC = () => {
 
   const mapCanvasRef = useRef(null);
   const mapCanvas = useRef<ScreenCanvas>();
+
+  const spaceParticleCanvasRef = useRef(null);
+  const spaceParticleCanvas = useRef<ScreenCanvas>();
 
   const bombImpactCanvas = useRef<ScreenCanvas>();
 
@@ -644,7 +647,8 @@ const Battlefield: React.FC = () => {
         !activeCanvasRef.current || 
         !bombCanvasRef.current || 
         !explosionParticleCanvasRef.current ||
-        !miniMapCanvasRef.current
+        !miniMapCanvasRef.current ||
+        !spaceParticleCanvasRef.current
       ) {
         console.error("canvas is null");
         return;
@@ -759,6 +763,14 @@ const Battlefield: React.FC = () => {
         el: explosionParticleCanvasRef.current
       });
 
+      
+      // spaceParticleCanvas
+      spaceParticleCanvas.current = new ScreenCanvas({
+        logicalWidth: logicalMapWidth,
+        logicalHeight: logicalMapHeight,
+        el: spaceParticleCanvasRef.current
+      })
+
       // viewport
       viewportRef.current = new Viewport({
         logicalMapSize: {
@@ -772,11 +784,20 @@ const Battlefield: React.FC = () => {
         activeCanvas: activeCanvas.current,
         bombCanvas: bombCanvas.current,
         explosionParticleCanvas: explosionParticleCanvas.current,
+        spaceParticleCanvas: spaceParticleCanvas.current,
 
         onViewportUpdate,
       })
 
       viewportRef.current.updateViewport(true)
+
+      // spaceParticleEffect
+      new SpaceParticleEffect({
+        ctx: spaceParticleCanvas.current.ctx,
+        boundaryX: logicalMapWidth,
+        boundaryY: logicalMapHeight,
+        num: 50,
+      })
 
       // ExplosionParticleEffect
       explosionParticleEffectRef.current = new ExplosionParticleEffect(explosionParticleCanvas.current.ctx, () => {
@@ -1021,6 +1042,7 @@ const Battlefield: React.FC = () => {
             <canvas id="active" ref={activeCanvasRef}></canvas>
             <canvas id="bomb" ref={bombCanvasRef}></canvas>
             <canvas id="explosionParticle" ref={explosionParticleCanvasRef}></canvas>
+            <canvas id="spaceParticle" ref={spaceParticleCanvasRef}></canvas>
           </div>
           <div id="ui-container">
             <div className="left">

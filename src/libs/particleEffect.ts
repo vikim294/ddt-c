@@ -1,4 +1,4 @@
-import { getRandomNumBetween } from "../utils/math"
+import { getDistanceBetweenTwoPoints, getRandomNumBetween } from "../utils/math"
 import { LogicalCanvas, Point } from "./canvas"
 
 class ExplosionParticle {
@@ -31,7 +31,7 @@ class ExplosionParticle {
     }
 
     draw(ctx: CanvasRenderingContext2D) {
-        if(this.x === null || this.y === null ) {
+        if (this.x === null || this.y === null) {
             console.error('x或y为null')
             return
         }
@@ -57,7 +57,7 @@ class ExplosionParticleGroup {
             x, y
         } = target
         const arr = []
-        for(let i = 0; i < quantity; i++) {
+        for (let i = 0; i < quantity; i++) {
             // 随机初速度、存在时间
             const particle = new ExplosionParticle(
                 getRandomNumBetween(1, 8),
@@ -78,13 +78,13 @@ class ExplosionParticleGroup {
         const elapsedS = elapsed / 1000
         this.particles.forEach(p => {
 
-            if(elapsed > p.duration) {
+            if (elapsed > p.duration) {
                 this.particles = this.particles.filter(_p => _p !== p)
                 return
             }
 
-            p.x =p.x0 + p.v0x * elapsedS,
-            p.y =p.y0 + p.v0y * elapsedS + 1 / 2 * ExplosionParticle.g * elapsedS * elapsedS
+            p.x = p.x0 + p.v0x * elapsedS,
+                p.y = p.y0 + p.v0y * elapsedS + 1 / 2 * ExplosionParticle.g * elapsedS * elapsedS
         })
     }
 
@@ -110,7 +110,7 @@ export class ExplosionParticleEffect {
     }
 
     anim(timestamp: number) {
-        if(this.groups.length === 0) {
+        if (this.groups.length === 0) {
             this.hasStarted = false
             this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height)
             this.renderCanvasFunction()
@@ -118,14 +118,14 @@ export class ExplosionParticleEffect {
         }
 
         this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height)
-    
+
         this.groups.forEach(group => {
-            if(!group.startTime) group.startTime = timestamp
-    
+            if (!group.startTime) group.startTime = timestamp
+
             const elapsed = timestamp - group.startTime
             group.calculatePosition(elapsed)
             // 某个group的所有粒子消失后，从groups中移除该group
-            if(group.particles.length === 0) {
+            if (group.particles.length === 0) {
                 this.groups = this.groups.filter(_group => _group !== group)
             }
             else {
@@ -139,8 +139,181 @@ export class ExplosionParticleEffect {
     }
 
     start() {
-        if(this.hasStarted) return
+        if (this.hasStarted) return
         this.hasStarted = true
         requestAnimationFrame(this.anim.bind(this))
+    }
+}
+
+
+
+
+interface SpaceParticleOptions {
+    ctx: CanvasRenderingContext2D
+    boundaryX: number
+    boundaryY: number
+}
+
+class SpaceParticle {
+    size: number
+    color: string
+
+    boundaryX: number
+    boundaryY: number
+
+    startPoint: Point
+
+    x: number
+    y: number
+
+    endPoint: Point
+
+    startTime: number | null = null
+    duration: number
+
+    ctx: CanvasRenderingContext2D
+
+    constructor(opts: SpaceParticleOptions) {
+        this.ctx = opts.ctx
+        this.size = this.getRandomSize()
+        this.color = this.getRandomColor()
+        this.boundaryX = opts.boundaryX
+        this.boundaryY = opts.boundaryY
+        this.startPoint = this.getRandomPosition()
+        this.x = this.startPoint.x
+        this.y = this.startPoint.y
+        this.endPoint = this.getRandomPosition()
+        this.duration = this.getDuration()
+    }
+
+    getRandomSize() {
+        return getRandomNumBetween(1, 6)
+    }
+
+    getRandomColor() {
+        const value = getRandomNumBetween(180, 200)
+        return `rgb(${value}, ${value}, ${value})`
+    }
+
+    getRandomPosition() {
+        return {
+            x: getRandomNumBetween(0, this.boundaryX),
+            y: getRandomNumBetween(0, this.boundaryY)
+        }
+    }
+
+    getDuration() {
+        // 25px / s
+        return Math.floor(getDistanceBetweenTwoPoints(this.startPoint, this.endPoint)) * 50
+    }
+
+    continueMoving(isNew: boolean = false) {
+        if(!isNew) {
+            this.startPoint = {
+                ...this.endPoint
+            }
+        }
+        else {
+            // new
+            this.size = this.getRandomSize()
+            this.color = this.getRandomColor()
+            this.startPoint = this.getRandomPosition()
+        }
+
+        this.endPoint = this.getRandomPosition()
+        this.duration = this.getDuration()
+        this.startTime = null
+    }
+
+    draw() {
+        this.ctx.fillStyle = this.color
+        this.ctx.beginPath()
+        this.ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size)
+    }
+
+}
+
+interface SpaceParticleEffectOptions {
+    ctx: CanvasRenderingContext2D
+    boundaryX: number
+    boundaryY: number
+    num: number
+}
+
+export class SpaceParticleEffect {
+    num: number
+    particles: SpaceParticle[] = []
+
+    ctx: CanvasRenderingContext2D
+    boundaryX: number
+    boundaryY: number
+
+    isAnimOver: boolean
+
+    constructor(opts: SpaceParticleEffectOptions) {
+        this.ctx = opts.ctx
+        this.boundaryX = opts.boundaryX
+        this.boundaryY = opts.boundaryY
+        this.num = opts.num
+        this.isAnimOver = false
+
+        // 创建 num 个粒子
+        this.generateParticles()
+
+        // 开始动画
+        requestAnimationFrame(this.anim.bind(this))
+    }
+
+    generateParticles() {
+        for (let i = 0; i < this.num; i++) {
+            const particle = new SpaceParticle({
+                ctx: this.ctx,
+                boundaryX: this.boundaryX,
+                boundaryY: this.boundaryY
+            })
+            this.particles.push(particle)
+        }
+    }
+
+    anim(timestamp: number) {
+        // 动画结束
+        if (this.isAnimOver) return
+
+        // 清空
+        this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height)
+
+        // 渲染每个粒子
+        this.particles.forEach(particle => {
+            // 新创建的粒子
+            if (!particle.startTime) {
+                particle.startTime = timestamp
+            }
+
+            const elapsedMs = timestamp - particle.startTime
+
+            const progress = Math.min(1, elapsedMs / particle.duration)
+
+            particle.x = particle.startPoint.x + (particle.endPoint.x - particle.startPoint.x) * progress
+            particle.y = particle.startPoint.y + (particle.endPoint.y - particle.startPoint.y) * progress
+
+            particle.draw()
+
+            // 到达目的地
+            if (progress === 1) {
+                if (Math.random() > 0.35) {
+                    // 65% 的概率继续
+                    particle.continueMoving()
+                }
+                else {
+                    particle.continueMoving(true)
+                }
+            }
+        })
+
+        requestAnimationFrame(this.anim.bind(this))
+    }
+
+    overAnim() {
+        this.isAnimOver = true
     }
 }

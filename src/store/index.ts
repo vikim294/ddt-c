@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit'
 import userInfoReducer from "./userInfoSlice"
 import resolutionReducer from "./resolutionSlice"
 import userOnlineStateReducer from "./userOnlineStateSlice"
+import updateTokenTimerReducer from "./updateTokenTimerSlice"
 
 // creates a Redux store
 const store = configureStore({
@@ -9,7 +10,8 @@ const store = configureStore({
     // slice(state): reducer
     userInfo: userInfoReducer,
     resolution: resolutionReducer,
-    userOnlineState: userOnlineStateReducer
+    userOnlineState: userOnlineStateReducer,
+    updateTokenTimer: updateTokenTimerReducer
   },
 })
 

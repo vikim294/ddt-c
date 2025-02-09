@@ -7,6 +7,7 @@ import { io, Socket } from "socket.io-client";
 import { SOCKET_SERVER_URL } from "../../utils/conf";
 import { SocketContext } from "../../context/socket";
 import { GameRoomInfo, getRoom } from "../../api/gameRoom";
+import { useAppSelector } from "../../store/hooks";
 
 interface ClientPlayer {
   id: string;
@@ -41,7 +42,8 @@ const GameRoom: React.FC = () => {
   let { gameRoomId } = useParams();
   const socket = useContext(SocketContext)
   const [gameRoom, setGameRoom] = useState<GameRoomInfo | null>(null)
-  
+  const userInfo = useAppSelector((state) => state.userInfo.value)
+
 
   const toggleMatching = () => {
     setIsMatching((v) => !v);
@@ -66,6 +68,7 @@ const GameRoom: React.FC = () => {
   };
 
   const goBackHome = () => {
+    // 回到home
     navigate('/');
   }
 
@@ -145,7 +148,7 @@ const GameRoom: React.FC = () => {
       //       );
       //     });
       //   }
-      
+
     } else {
       cancelMatching();
     }
@@ -159,35 +162,54 @@ const GameRoom: React.FC = () => {
     };
   }, [isMatching]);
 
-  async function getGameRoomInfo() {
-    try {
-      const res = await getRoom({
-        gameRoomId: gameRoomId!
-      })
+  // async function getGameRoomInfo() {
+  //   try {
+  //     const res = await getRoom({
+  //       gameRoomId: gameRoomId!
+  //     })
 
-      console.log('getGameRoomInfo', res)
+  //     console.log('getGameRoomInfo', res)
 
-      setGameRoom(res.data.gameRoom)
-    } catch (err) {
-      
-    }
+  //     setGameRoom(res.data.gameRoom)
+  //   } catch (err) {
+
+  //   }
+  // }
+
+  function updateGameRoomInfo(gameRoom: GameRoomInfo) {
+    console.log('updateGameRoomInfo', gameRoom)
+    setGameRoom(gameRoom)
   }
 
-  useEffect(()=>{
-    if(gameRoomId) {
-      getGameRoomInfo()
+  useEffect(() => {
+    if (socket && gameRoomId) {
+      socket.emit('enterRoom', gameRoomId)
 
-      socket?.on('enterRoom', getGameRoomInfo)
+      socket.on('enterRoom', updateGameRoomInfo)
+      socket.on('leaveRoom', updateGameRoomInfo)
     }
 
     return () => {
-      socket?.off('enterRoom', getGameRoomInfo)
+      // 刷新页面后 effect的cleanup中 socket为null
+      console.log('clean up', socket, userInfo, gameRoomId)
+
+      if (socket && userInfo && gameRoomId) {
+        console.log('leaveRoom')
+        // 用户离开房间
+        socket.emit('leaveRoom', {
+          userId: userInfo.id,
+          gameRoomId
+        })
+
+        socket.off('enterRoom', updateGameRoomInfo)
+        socket.off('leaveRoom', updateGameRoomInfo)
+      }
     }
-  }, [gameRoomId])
+  }, [gameRoomId, socket])
 
   console.log("render");
 
-  if(!gameRoomId || !gameRoom) {
+  if (!gameRoomId || !gameRoom) {
     return '无效的房间'
   }
 
@@ -238,7 +260,7 @@ const GameRoom: React.FC = () => {
       </div>
       {matchedPlayers.length === 0 && (
         <div className="operation">
-          <div onClick={toggleMatching} style={{display: 'block', padding: 10, backgroundColor: '#ccc', cursor: 'pointer'}}>
+          <div onClick={toggleMatching} style={{ display: 'block', padding: 10, backgroundColor: '#ccc', cursor: 'pointer' }}>
             {isMatching ? "取消匹配" : "开始匹配"}
           </div>
           <div>

@@ -206,7 +206,8 @@ export type LayerType =
   'inactive' |
   'active' |
   'bomb' |
-  'explosionParticle'
+  'explosionParticle' |
+  'spaceParticle'
 
 export function setCtxPathByMap(ctx: CanvasRenderingContext2D, partMap: string[]) {
   partMap.forEach((item, index) => {

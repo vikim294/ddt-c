@@ -32,3 +32,10 @@ export const userLogin = (data: LoginData) => {
     return apiPost<LoginResData>(`/user/login`, data)
 }
 
+interface TokenResData {
+    newToken: string
+}
+export const getNewToken = (data: User) => {
+    return apiGet<TokenResData>(`/user/newToken`, data)
+}
+
