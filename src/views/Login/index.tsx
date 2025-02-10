@@ -5,7 +5,7 @@ import "./index.scss"
 import { setUserInfo } from "../../store/userInfoSlice";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { userLogin } from "../../api/user";
-import { requestNewToken } from "../../utils/requestNewToken";
+import { startRequestNewTokenTimer } from "../../utils/requestNewToken";
 
 function Login() {
     const navigate = useNavigate();
@@ -36,7 +36,7 @@ function Login() {
         setPassword('')
 
         // 登录成功 40mins后 发送更新token请求
-        requestNewToken()
+        startRequestNewTokenTimer()
 
         // 跳转到 home
         navigate("/");

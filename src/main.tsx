@@ -9,7 +9,7 @@ import Register from './views/Register/index.tsx'
 import Login from './views/Login/index.tsx'
 
 import "./main.scss"
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { Provider } from 'react-redux'
 import store from "./store/index.ts"
 import { useAppSelector } from './store/hooks.ts'
@@ -17,6 +17,7 @@ import { SocketProvider } from './context/socket.tsx'
 import OfflineMask from './views/OfflineMask/index.tsx'
 import NotFound from './views/NotFound/index.tsx'
 import Auth from './components/auth/index.tsx'
+import { requestNewToken } from './utils/requestNewToken.ts'
 
 const router = createBrowserRouter([
     {
@@ -63,6 +64,13 @@ type Props = { children: ReactNode }
 
 const App: React.FC<Props> = ({children}) => {
     const resolution = useAppSelector((state) => state.resolution.value)
+
+    useEffect(()=>{
+        // console.log('App')
+
+        // 刷新页面后 请求新 token
+        requestNewToken()
+    }, [])
     
     return (
         <div id="app" style={{

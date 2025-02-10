@@ -36,6 +36,6 @@ interface TokenResData {
     newToken: string
 }
 export const getNewToken = (data: User) => {
-    return apiGet<TokenResData>(`/user/newToken`, data)
+    return apiGet<TokenResData | undefined>(`/user/newToken`, data)
 }
 

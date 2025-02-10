@@ -2,7 +2,7 @@ import axios from "axios"
 import { BACKEND_SERVER_URL } from "./conf";
 import store from "../store";
 import { clearUserInfo, setUserInfo } from "../store/userInfoSlice";
-import { requestNewToken } from "./requestNewToken";
+import { startRequestNewTokenTimer } from "./requestNewToken";
 
 const axiosInstance = axios.create({
     baseURL: BACKEND_SERVER_URL,
@@ -38,7 +38,7 @@ axiosInstance.interceptors.response.use((res) => {
             store.dispatch(setUserInfo(newUserInfo))
 
             // 40mins后 发送更新token请求
-            requestNewToken()
+            startRequestNewTokenTimer()
         }
     }
 
