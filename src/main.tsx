@@ -9,15 +9,13 @@ import Register from './views/Register/index.tsx'
 import Login from './views/Login/index.tsx'
 
 import "./main.scss"
-import { ReactNode, useEffect } from 'react'
 import { Provider } from 'react-redux'
 import store from "./store/index.ts"
-import { useAppSelector } from './store/hooks.ts'
-import { SocketProvider } from './context/socket.tsx'
+import { SocketProvider } from './context/socket/socketProvider.tsx'
 import OfflineMask from './views/OfflineMask/index.tsx'
 import NotFound from './views/NotFound/index.tsx'
 import Auth from './components/auth/index.tsx'
-import { requestNewToken } from './utils/requestNewToken.ts'
+import App from './App.tsx'
 
 const router = createBrowserRouter([
     {
@@ -27,7 +25,7 @@ const router = createBrowserRouter([
         </Auth>
     },
     {
-        path: '/battleField',
+        path: '/battleField/:gameRoomId/:battlefieldId',
         element: <Auth>
             <BattleField></BattleField>
         </Auth>
@@ -59,28 +57,6 @@ const router = createBrowserRouter([
         </Auth>
     }
 ])
-
-type Props = { children: ReactNode }
-
-const App: React.FC<Props> = ({children}) => {
-    const resolution = useAppSelector((state) => state.resolution.value)
-
-    useEffect(()=>{
-        // console.log('App')
-
-        // 刷新页面后 请求新 token
-        requestNewToken()
-    }, [])
-    
-    return (
-        <div id="app" style={{
-            width: resolution.width,
-            height: resolution.height,
-        }}>
-            {children}
-        </div>
-    )
-}
 
 createRoot(document.getElementById('root')!).render(
     // Provide the Redux store to the React app

@@ -21,7 +21,7 @@ export const TRIDENT_ANGLE_DIFFERENCE = 15
 export const BOMB_FIRING_INTERVAL = 1500
 
 /**
- * 移动动画时长 1000ms
+ * 移动动画时长 100ms
  */
 export const PLAYER_MOVING_DURATION = 100
 
@@ -33,4 +33,4 @@ export const DAMAGE_VALUE_FONTSIZE = 40
 /**
  * 摄像机聚焦时间
  */
-export const CAMERA_FOCUS_DURATION = 1000
+export const CAMERA_FOCUS_DURATION = 100

@@ -18,7 +18,7 @@ export const userRegister = (data: RegisterData) => {
     return apiPost(`/user/register`, data)
 }
 
-interface LoginData extends RegisterData {}
+type LoginData = RegisterData
 export interface UserInfo {
     id: number
     name: string

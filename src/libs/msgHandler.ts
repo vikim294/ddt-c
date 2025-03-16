@@ -1,18 +1,32 @@
-import { useRef } from 'react';
-import { Bomb, BombTarget, Player } from '../libs/player';
-import { Point } from '../libs/canvas';
+import { Bomb, BombTarget, Player } from './player';
+import { Point } from './canvas';
 import { ClientPlayer } from '../views/Battlefield';
 import { Socket } from 'socket.io-client';
-import { ExplosionParticleEffect } from '../libs/particleEffect';
+import { ExplosionParticleEffect } from './particleEffect';
+
+interface Props {
+    client: ClientPlayer
+    clientPlayer: React.MutableRefObject<Player | null>
+    activePlayer: React.MutableRefObject<Player | null>
+    socket: Socket | null
+    playerRefs: React.MutableRefObject<Player[]>
+    isDrawingBombRef: React.MutableRefObject<boolean>
+    explosionParticleEffectRef: React.MutableRefObject<ExplosionParticleEffect | null>
+    isActivePlayer: () => boolean
+    checkBombEffect: (bombTarget: BombTarget, player: Player, socket: Socket) => void;
+    setClientPlayerAngle: React.Dispatch<React.SetStateAction<number>>
+    setClientPlayerFiringPower: React.Dispatch<React.SetStateAction<number>>
+}
 
 export interface MsgHandler {
-    getClientPlayerId: () => string;
-    isActivePlayer: (playerId: string) => boolean;
+    getClientPlayerId: () => number | null;
+    isActivePlayer: (playerId: number) => boolean;
+    onActivePlayerMoving: () => void;
     onPlayerFall: () => void;
     syncBombDataBeforePlayerFires: (bombsData: Bomb[], isTrident?: boolean) => void;
     addExplosionParticleEffect: (target: Point)=> void
     startExplosionParticleEffect: ()=> void
-    checkBombEffect: (bombTarget: BombTarget) => void;
+    checkBombEffects: (bombTarget: BombTarget) => void;
     setActivePlayerAngle: (angle: number) => void;
     resetActivePlayerFiringPower: () => void;
     getIsDrawingBomb: () => boolean;
@@ -20,25 +34,11 @@ export interface MsgHandler {
     startNextTurn: () => void;
 }
 
-interface Props {
-    client: ClientPlayer
-    clientPlayer: React.MutableRefObject<Player | null>
-    activePlayer: React.MutableRefObject<Player | null>
-    socketRef: React.MutableRefObject<Socket | null>
-    playerRefs: React.MutableRefObject<Player[]>
-    isDrawingBombRef: React.MutableRefObject<boolean>
-    explosionParticleEffectRef: React.MutableRefObject<ExplosionParticleEffect | null>
-    isActivePlayer: () => boolean
-    checkBombEffect: (bombTarget: BombTarget, player: Player) => void;
-    setClientPlayerAngle: React.Dispatch<React.SetStateAction<number>>
-    setClientPlayerFiringPower: React.Dispatch<React.SetStateAction<number>>
-}
-
-const useMsgHandler = ({
+const getMsgHandler = ({
     client,
     clientPlayer,
     activePlayer,
-    socketRef,
+    socket,
     playerRefs,
     isDrawingBombRef,
     explosionParticleEffectRef,
@@ -47,14 +47,12 @@ const useMsgHandler = ({
     setClientPlayerAngle,
     setClientPlayerFiringPower
 }: Props) => {
-    // 每次组件渲染时，自定义 Hook 的逻辑会重新执行，但 useRef 返回的引用 msgHandler 不会重新创建。
-    // msgHandler 在组件的整个生命周期内是持久的，不会在每次渲染时重新创建。
-    const msgHandler = useRef({
+    const msgHandler = {
         getClientPlayerId() {
             return client.id;
         },
 
-        isActivePlayer(playerId: string) {
+        isActivePlayer(playerId: number) {
             if(!activePlayer.current) {
                 throw new Error("activePlayer is null");
             }
@@ -62,26 +60,43 @@ const useMsgHandler = ({
             return activePlayer.current.id === playerId;
         },
 
+        onActivePlayerMoving() {
+            if(!socket) {
+                throw new Error("socket is null");
+            }
+
+            if(!activePlayer.current) {
+                throw new Error("activePlayer is null");
+            }
+
+            if(isActivePlayer()) {
+                socket.emit(
+                    "activePlayerMoving",
+                    activePlayer.current.centerPoint
+                );
+            }
+        },
+
         onPlayerFall() {
-            if(!socketRef.current) {
+            if(!socket) {
                 throw new Error("socket is null");
             }
             if(!activePlayer.current) {
                 throw new Error("activePlayer is null");
             }
 
-            socketRef.current.emit(
+            socket.emit(
                 "activePlayerFall",
                 activePlayer.current.centerPoint
             );
         },
 
         syncBombDataBeforePlayerFires(bombsData: Bomb[], isTrident?: boolean) {
-            if(!socketRef.current) {
+            if(!socket) {
                 throw new Error("socket is null");
             }
 
-            socketRef.current.emit("syncBombDataBeforePlayerFires", bombsData, isTrident);
+            socket.emit("syncBombDataBeforePlayerFires", bombsData, isTrident);
         },
 
         addExplosionParticleEffect(target: Point) {
@@ -100,9 +115,13 @@ const useMsgHandler = ({
             explosionParticleEffectRef.current.start()
         },
 
-        checkBombEffect(bombTarget: BombTarget) {
+        checkBombEffects(bombTarget: BombTarget) {
+            if(!socket) {
+                throw new Error("socket is null");
+            }
+
             playerRefs.current.forEach((player) => {
-                checkBombEffect(bombTarget, player);
+                checkBombEffect(bombTarget, player, socket);
             });
         },
 
@@ -144,17 +163,17 @@ const useMsgHandler = ({
         startNextTurn() {
             if (isActivePlayer()) {
                 setTimeout(() => {
-                    if(!socketRef.current) {
+                    if(!socket) {
                         throw new Error("socket is null");
                     }
 
-                    socketRef.current.emit("startNextTurn");
+                    socket.emit("startNextTurn");
                 }, 2000);
             }
         },
-    });
+    };
 
     return msgHandler;
 };
 
-export default useMsgHandler;
+export default getMsgHandler;

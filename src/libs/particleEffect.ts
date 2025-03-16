@@ -1,5 +1,5 @@
 import { getDistanceBetweenTwoPoints, getRandomNumBetween } from "../utils/math"
-import { LogicalCanvas, Point } from "./canvas"
+import { Point } from "./canvas"
 
 class ExplosionParticle {
     size: number
@@ -83,8 +83,8 @@ class ExplosionParticleGroup {
                 return
             }
 
-            p.x = p.x0 + p.v0x * elapsedS,
-                p.y = p.y0 + p.v0y * elapsedS + 1 / 2 * ExplosionParticle.g * elapsedS * elapsedS
+            p.x = p.x0 + p.v0x * elapsedS
+            p.y = p.y0 + p.v0y * elapsedS + 1 / 2 * ExplosionParticle.g * elapsedS * elapsedS
         })
     }
 

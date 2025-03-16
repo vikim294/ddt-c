@@ -4,7 +4,7 @@ import "./index.scss"
 function OfflineMask() {
     const userInfo = useAppSelector(state => state.userInfo.value)
     const userOnlineState = useAppSelector(state => state.userOnlineState.value)
-    // 登录后 且 连接断开时
+    // 登录后 且 连接断开时 显示 OfflineMask
     if(!userInfo) return null
     if(userOnlineState) return null
 

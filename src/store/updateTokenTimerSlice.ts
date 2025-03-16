@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 
-let initialState: {
+const initialState: {
   value: number | null
 } = {
   value: null

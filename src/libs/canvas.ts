@@ -26,6 +26,8 @@ export class Canvas {
 
   readonly logicalWidth: number
   readonly logicalHeight: number
+  
+  protected initMap?: Map
 
   constructor(options: CanvasOptions) {
     const {
@@ -55,6 +57,12 @@ export class Canvas {
         willReadFrequently
     }) as CanvasRenderingContext2D 
   }
+
+  resetMap() {}
+
+  clearCanvas() {
+    this.ctx.clearRect(0, 0, this.el.width, this.el.height)
+  }
 }
 
 interface LogicalCanvasOptions extends CanvasOptions {
@@ -65,6 +73,8 @@ interface LogicalCanvasOptions extends CanvasOptions {
  * off-screen canvas
  */
 export class LogicalCanvas extends Canvas {
+
+  public static LINE_WIDTH = 2
 
   constructor(options: LogicalCanvasOptions) {
     super({
@@ -77,14 +87,21 @@ export class LogicalCanvas extends Canvas {
     this.el.height = this.logicalHeight
 
     // 需要设置为2吗？
-    this.ctx.lineWidth = 2
+    this.ctx.lineWidth = LogicalCanvas.LINE_WIDTH
 
-    if(options?.initMap) {
+    if(options.initMap) {
+      this.initMap = options.initMap
       // logical map canvas
       this.ctx.fillStyle = '#00ff00'
       this.ctx.strokeStyle = '#ff0000'
 
       drawMap(this.el, this.ctx, options.initMap)
+    }
+  }
+
+  resetMap(): void {
+    if(this.initMap) {
+      drawMap(this.el, this.ctx, this.initMap)
     }
   }
 
@@ -156,12 +173,19 @@ export class ScreenCanvas extends Canvas {
 
     this.ctx.imageSmoothingEnabled = false; 
 
-    if(options?.initMap) {
+    if(options.initMap) {
+      this.initMap = options.initMap
       // physical map canvas
       this.ctx.fillStyle = '#00ff00'
       this.ctx.strokeStyle = '#ff0000'
 
       drawMap(this.el, this.ctx, options.initMap)
+    }
+  }
+
+  resetMap(): void {
+    if(this.initMap) {
+      drawMap(this.el, this.ctx, this.initMap)
     }
   }
 

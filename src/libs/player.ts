@@ -1,10 +1,11 @@
 
-// import { Socket } from "socket.io-client"
-import { MsgHandler } from "../hooks/useMsgHandler"
+import { Socket } from "socket.io-client"
+import { v4 as uuidv4 } from "uuid";
 import { angleToRadian, getDistanceBetweenTwoPoints, radianToAngle } from "../utils/math"
-import { Canvas, ScreenCanvas, LogicalCanvas, Point, pointOutOfMap, setCtxPathByMap, toCanvasCoordinateY, toCartesianCoordinateY } from "./canvas"
+import { Canvas, ScreenCanvas, LogicalCanvas, Point, pointOutOfMap, toCanvasCoordinateY, toCartesianCoordinateY } from "./canvas"
 import { BOMB_FIRING_INTERVAL, G, PLAYER_MOVING_DURATION, TRIDENT_ANGLE_DIFFERENCE } from "./constants"
-import { SHELL_CRATER_50_round } from "./shellCraters"
+import { MsgHandler } from "./msgHandler"
+// import { SHELL_CRATER_50_round } from "./shellCraters"
 import { Viewport } from "./viewport"
 
 
@@ -33,7 +34,7 @@ export interface PlayerOptions {
   viewport: Viewport
   miniMap: ScreenCanvas
 
-  id: string
+  id: number
   name: string
   centerPoint: Point
 
@@ -45,7 +46,11 @@ export interface PlayerOptions {
 }
 
 export interface BombTarget {
-    x: number, y: number, damageRadius: number
+    bombId: string
+    x: number
+    y: number
+    damageRadius: number
+    bombAngle?: number
 }
 
 export interface Bomb {
@@ -88,7 +93,7 @@ export class Player {
   viewport: Viewport
   miniMap: ScreenCanvas
 
-  id: string
+  id: number
   name: string
 
   centerPoint: Point
@@ -182,6 +187,7 @@ export class Player {
     this.centerPoint = centerPoint
     this.direction = direction
     const surfacePoints = this.logicalMapCanvas.getSurfacePointsByPointAndLength(this.centerPoint, Player.BOUNDING_BOX_LENGTH)
+    console.log('new Player:', this.centerPoint, surfacePoints)
     this.leftPoint = surfacePoints[0]
     this.rightPoint = surfacePoints[surfacePoints.length - 1]
     this.movingStartPoint = {
@@ -281,15 +287,19 @@ export class Player {
     this.angle = this.direction === 'right' ? locationData.angle : -locationData.angle
   }
 
+  // 假设在 battlefield 中只有 2 个 player 
   drawPlayer() {
     // console.log('drawPlayer', this.id, this.centerPoint.x, this.centerPoint.y)
     if(this.msgHandler.isActivePlayer(this.id)) {
+        console.log('drawPlayer active')
+
       this.drawPlayerByIsActive(this.activeCanvas)
-      this.viewport.setLayerTranslate('active')
+    //   this.viewport.setLayerTranslate('active')
     }
     else {
-      this.drawPlayerByIsActive(this.inactiveCanvas)
-      this.viewport.setLayerTranslate('inactive')
+        console.log('drawPlayer inactive')
+        this.drawPlayerByIsActive(this.inactiveCanvas)
+    //   this.viewport.setLayerTranslate('inactive')
     }
   }
 
@@ -468,6 +478,8 @@ export class Player {
 
     if(progress === 1) {
         // console.log('arrived at B')
+        this.msgHandler.onActivePlayerMoving()
+
         // replace A with B
         this.updatePlayerPositionDataByPreCalculatedPositionData()
 
@@ -577,7 +589,7 @@ export class Player {
           this.updatePlayerPositionDataOnPage()
       }
       else {
-        console.log('locationData', locationData)
+        throw new Error("locationData is null");
       }
   }
 
@@ -704,7 +716,9 @@ export class Player {
         this.isFallingDown = false
         this.isMoving = false
         this.updatePlayerPositionData()
-        this.onFallingAnimOver && this.onFallingAnimOver()
+        if(this.onFallingAnimOver) {
+            this.onFallingAnimOver()
+        }
 
         return
     }
@@ -746,6 +760,25 @@ export class Player {
     this.updatePlayerPositionDataOnPage()
   }
 
+  updatePlayerInfoInBattlefield(centerPoint: Point, direction: Direction, health: number) {
+    this.direction = direction
+    this.centerPoint = centerPoint
+    this.health = health
+
+    const {
+        leftPoint, 
+        rightPoint, 
+        angle
+    } = this.calculatePlayerPositionDataByPoint({
+        x: this.centerPoint.x,
+        y: this.centerPoint.y,
+    })
+
+    this.leftPoint = leftPoint
+    this.rightPoint = rightPoint
+    this.angle = angle
+  }
+
   // --------
   playerStartToFire() {
     // console.time('preCalculateBombData')
@@ -779,10 +812,10 @@ export class Player {
 
   getBombTarget(bomb: Bomb) {
     const { data: canvasData } = this.bombDrawingOffscreenCanvas.ctx.getImageData(0, 0, this.bombDrawingOffscreenCanvas.logicalWidth, this.bombDrawingOffscreenCanvas.logicalHeight)
-    let count = 0
+    // let count = 0
     for(let i = 0; i < bomb.track.length; i++) {
             const {
-                x, y, sec
+                x, y, sec, bombAngle
             } = bomb.track[i]
 
             // 如果track上的该点 在map范围外
@@ -798,7 +831,7 @@ export class Player {
                 }
 
                 for(let col = 0; col < bomb.size; col++) {
-                    count++
+                    // count++
 
                     const px = x - bomb.size / 2 + col
                     if(px < 0 || px >= this.bombDrawingOffscreenCanvas.logicalWidth) {
@@ -821,11 +854,13 @@ export class Player {
                         if(!this.isPaperPlane) {
                             // 在离屏canvas上 bombTarget 
                             // console.log('在离屏canvas上 bombTarget')
-                            this.bombTarget({
+                            bombTarget({
+                                bombId: bomb.id,
                                 x,
                                 y,
-                                damageRadius: bomb.damageRadius
-                            }, this.bombDrawingOffscreenCanvas.ctx)
+                                damageRadius: bomb.damageRadius,
+                                bombAngle: bombAngle
+                            }, this.logicalMapCanvas, this.bombDrawingOffscreenCanvas.ctx)
                         }
 
                         // this.testCanvas.ctx.clearRect(0, 0, this.testCanvas.el.width, this.testCanvas.el.height)
@@ -875,8 +910,7 @@ export class Player {
     const v0Vertical = v0 * Math.sin(angleToRadian(angle))
 
     const bomb: Bomb = {
-        // id emmm
-        id: `${+new Date()}`,
+        id: uuidv4(),
         // 固定fire的位置
         x: this.firingPosition.x,
         y: this.firingPosition.y,
@@ -1008,22 +1042,24 @@ export class Player {
                 }
                 else {
                     const target = {
+                        bombId: bomb.id,
                         x: bomb.targetX,
                         y: bomb.targetY,
                         damageRadius: bomb.damageRadius,
                         bombAngle: bomb.track[bombMs].bombAngle
                     }
 
-                    this.bombTarget(target, this.logicalMapCanvas.ctx)
-                    this.bombTarget(target, this.mapCanvas.ctx)
-                    this.bombImpact(target)
+                    bombTarget(target, this.logicalMapCanvas, this.logicalMapCanvas.ctx)
+                    bombTarget(target, this.logicalMapCanvas, this.mapCanvas.ctx)
+                    bombImpact(target, this.bombImpactCanvas, this.mapCanvas)
+                    // 更新 miniMap
                     this.miniMap.drawFrom(this.mapCanvas)
     
                     this.msgHandler.addExplosionParticleEffect(target)
                     this.msgHandler.startExplosionParticleEffect()
     
                     // bomb 对 players的effect
-                    this.msgHandler.checkBombEffect(target)
+                    this.msgHandler.checkBombEffects(target)
                 }
             }
 
@@ -1138,7 +1174,7 @@ export class Player {
             // --- target
             if(bomb.bombSec === -1) {
                 const {
-                    x, y, sec
+                    x, y, sec, bombAngle
                 } = bomb.track[i]
 
                 // 如果track上的该点 在map范围外
@@ -1160,11 +1196,13 @@ export class Player {
                     bomb.bombSec = sec
         
                     // 在离屏canvas上 bombTarget 
-                    this.bombTarget({
+                    bombTarget({
+                        bombId: bomb.id,
                         x,
                         y,
-                        damageRadius: bomb.damageRadius
-                    }, this.bombDrawingOffscreenCanvas.ctx)
+                        damageRadius: bomb.damageRadius,
+                        bombAngle
+                    }, this.logicalMapCanvas, this.bombDrawingOffscreenCanvas.ctx)
 
                 }
             }
@@ -1267,16 +1305,20 @@ export class Player {
             this.tridentBombs = this.tridentBombs.filter(item => item !== bomb)
     
             if(!bomb.isOutOfMapBoundary) {
+                const bombMs = bomb.bombSec * 1000
+
                 const target = {
+                    bombId: bomb.id,
                     x: bomb.x,
                     y: bomb.y,
-                    damageRadius: bomb.damageRadius
+                    damageRadius: bomb.damageRadius,
+                    bombAngle: bomb.track[bombMs].bombAngle
                 }
-                this.bombTarget(target, this.logicalMapCanvas.ctx)
+                bombTarget(target, this.logicalMapCanvas, this.logicalMapCanvas.ctx)
                 // this.msgHandler.syncWithLogicalMapCanvas()
 
                 // 对player的effect
-                this.msgHandler.checkBombEffect(target)
+                this.msgHandler.checkBombEffects(target)
             }
 
             continue
@@ -1315,13 +1357,14 @@ export class Player {
         bomb.y = y
     }
   }
+}
 
-  bombTarget({x, y, damageRadius}: BombTarget, ctx: CanvasRenderingContext2D) {
+export function bombTarget({x, y, damageRadius}: BombTarget, logicalCanvas: LogicalCanvas, targetCtx: CanvasRenderingContext2D) {
     const offscreenCanvas = document.createElement('canvas')
-    offscreenCanvas.width = this.logicalMapCanvas.el.width
-    offscreenCanvas.height = this.logicalMapCanvas.el.height
+    offscreenCanvas.width = logicalCanvas.logicalWidth
+    offscreenCanvas.height = logicalCanvas.logicalHeight
     const offscreenCanvasCtx = offscreenCanvas.getContext('2d')!
-    offscreenCanvasCtx.lineWidth = this.logicalMapCanvas.ctx.lineWidth
+    offscreenCanvasCtx.lineWidth = LogicalCanvas.LINE_WIDTH
 
     // 先fill => 再stroke(destination-out) -> 得到 【内部填充】
     offscreenCanvasCtx.beginPath()
@@ -1338,43 +1381,42 @@ export class Player {
     // offscreenCanvasCtx.restore()
 
     // 然后将offscreenCanvas 以destination-out的方式，绘制到 mapCanvas上
-    ctx.save()
+    targetCtx.save()
 
-    ctx.globalCompositeOperation = 'destination-out'
-    ctx.drawImage(offscreenCanvas, 0, 0)
+    targetCtx.globalCompositeOperation = 'destination-out'
+    targetCtx.drawImage(offscreenCanvas, 0, 0)
 
     // 最后绘制描边
-    ctx.beginPath()
-    ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
-    ctx.globalCompositeOperation = 'source-atop'
+    targetCtx.beginPath()
+    targetCtx.arc(x, y, damageRadius, 0, Math.PI * 2)
+    targetCtx.globalCompositeOperation = 'source-atop'
 
-    // ctx.translate(x - damageRadius, y - damageRadius)
-    // setCtxPathByMap(ctx, SHELL_CRATER_50_round)
-    ctx.stroke()
+    // targetCtx.translate(x - damageRadius, y - damageRadius)
+    // setCtxPathByMap(targetCtx, SHELL_CRATER_50_round)
+    targetCtx.stroke()
 
-    ctx.restore()
-  }
-
-  bombImpact({x, y, damageRadius}: BombTarget) {
-    // bombImpactCanvas
-    this.bombImpactCanvas.ctx.beginPath()
-    this.bombImpactCanvas.ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
-    this.bombImpactCanvas.ctx.lineWidth = 10
-    this.bombImpactCanvas.ctx.strokeStyle = '#000'
-    this.bombImpactCanvas.ctx.stroke()
-
-    // 合成到mapCanvas
-    const dpr = this.bombImpactCanvas.dpr
-    const logicalWidth = this.bombImpactCanvas.logicalWidth
-    const logicalHeight = this.bombImpactCanvas.logicalHeight
-    this.mapCanvas.ctx.save()
-    this.mapCanvas.ctx.globalCompositeOperation = 'source-atop'
-    this.mapCanvas.ctx.drawImage(this.bombImpactCanvas.el, 0, 0, logicalWidth * dpr, logicalHeight * dpr, 0, 0, logicalWidth, logicalHeight);
-    this.mapCanvas.ctx.restore()
-    }
+    targetCtx.restore()
 }
 
-export function checkBombEffect(bombTarget: BombTarget, player: Player) {
+export function bombImpact({x, y, damageRadius}: BombTarget, bombImpactCanvas: ScreenCanvas, mapCanvas: ScreenCanvas) {
+    // bombImpactCanvas
+    bombImpactCanvas.ctx.beginPath()
+    bombImpactCanvas.ctx.arc(x, y, damageRadius, 0, Math.PI * 2)
+    bombImpactCanvas.ctx.lineWidth = 10
+    bombImpactCanvas.ctx.strokeStyle = '#000'
+    bombImpactCanvas.ctx.stroke()
+
+    // 合成到 mapCanvas
+    const dpr = bombImpactCanvas.dpr
+    const logicalWidth = bombImpactCanvas.logicalWidth
+    const logicalHeight = bombImpactCanvas.logicalHeight
+    mapCanvas.ctx.save()
+    mapCanvas.ctx.globalCompositeOperation = 'source-atop'
+    mapCanvas.ctx.drawImage(bombImpactCanvas.el, 0, 0, logicalWidth * dpr, logicalHeight * dpr, 0, 0, logicalWidth, logicalHeight);
+    mapCanvas.ctx.restore()
+}
+
+export function checkBombEffect(bombTarget: BombTarget, player: Player, socket: Socket) {
     const {
         x,
         y,
@@ -1389,6 +1431,7 @@ export function checkBombEffect(bombTarget: BombTarget, player: Player) {
     }, player.centerPoint)
     if(d <= damageRadius) {
         console.log(`player ${player.id} gets hurt!`)
+
         // player hp 计算
         const newHealth = player.health - player.weapon.damage
         if(newHealth > 0) {
@@ -1399,6 +1442,7 @@ export function checkBombEffect(bombTarget: BombTarget, player: Player) {
             console.log(`--- player ${player.id} is dead! ---`)
         }
         
+        // draw player at new pos
         const { data } = player.logicalMapCanvas.ctx.getImageData(player.centerPoint.x, player.centerPoint.y, 1, player.logicalMapCanvas.el.height - player.centerPoint.y)
         let isPlayerOutOfMapBoundary = true
         for(let i = 0; i < data.length; i += 4) {
@@ -1425,5 +1469,28 @@ export function checkBombEffect(bombTarget: BombTarget, player: Player) {
         if(isPlayerOutOfMapBoundary) {
             console.info(`player ${player.id} 掉进地图外了！`)
         }
+        else {
+            // 更新 服务器上的 player的 hp, center point，并记录该 bomb
+            const {
+                id,
+                health,
+                centerPoint
+            } = player
+
+            socket.emit('bombBombedInBattlefield', {
+                bombTarget,
+                playerInfo: {
+                    id,
+                    health,
+                    centerPoint
+                }
+            })
+        }
+    }
+    else {
+        // 记录该 bomb
+        socket.emit('bombBombedInBattlefield', {
+            bombTarget,
+        })
     }
 }

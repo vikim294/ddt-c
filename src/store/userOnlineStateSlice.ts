@@ -8,6 +8,7 @@ const userOnlineStateSlice = createSlice({
   reducers: {
     // 指定 payload的类型
     setUserOnlineState: (state, action: PayloadAction<boolean>) => {
+      console.log('setUserOnlineState', action.payload)
       state.value = action.payload
     },
   },

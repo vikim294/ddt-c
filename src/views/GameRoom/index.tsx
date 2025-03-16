@@ -1,12 +1,11 @@
 import "./index.scss";
-import React, { useContext, useEffect, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useParams } from "react-router-dom";
 
-import { io, Socket } from "socket.io-client";
-import { SOCKET_SERVER_URL } from "../../utils/conf";
-import { SocketContext } from "../../context/socket";
-import { GameRoomInfo, getRoom } from "../../api/gameRoom";
+// import { SOCKET_SERVER_URL } from "../../utils/conf";
+import { SocketContext } from "../../context/socket/socketContext";
+import { GameRoomInfo } from "../../api/gameRoom";
 import { useAppSelector } from "../../store/hooks";
 
 interface ClientPlayer {
@@ -32,149 +31,66 @@ const player: ClientPlayer = {
 };
 
 const GameRoom: React.FC = () => {
-  const socketRef = useRef<Socket>();
-  const [isMatching, setIsMatching] = useState(false);
-  const [connectionState, setConnectionState] = useState(false);
+  const [isMatching, setIsMatching] = useState<boolean | null>(null);
   const [matchingTimeout, setMatchingTimeout] = useState(0);
   const matchingTimerIdRef = useRef<number | undefined>();
   const [matchedPlayers, setMatchedPlayers] = useState<ClientPlayer[]>([]);
   const navigate = useNavigate();
-  let { gameRoomId } = useParams();
+  const { gameRoomId } = useParams();
   const socket = useContext(SocketContext)
   const [gameRoom, setGameRoom] = useState<GameRoomInfo | null>(null)
   const userInfo = useAppSelector((state) => state.userInfo.value)
-
 
   const toggleMatching = () => {
     setIsMatching((v) => !v);
   };
 
-  const cancelMatching = () => {
-    clearInterval(matchingTimerIdRef.current);
-    setMatchingTimeout(0);
-    setMatchedPlayers([]);
-    socketRef.current?.emit("cancelMatching");
-  };
+  const cancelMatching = useCallback(() => {
+    if (socket) {
+      clearInterval(matchingTimerIdRef.current);
+      setMatchingTimeout(0);
+      setMatchedPlayers([]);
+      socket.emit("cancelMatching");
+    }
+  }, [socket]);
 
-  const matchingCompleted = (battlefieldId: string) => {
+  const matchingCompleted = useCallback((battlefieldId: string) => {
     clearInterval(matchingTimerIdRef.current);
     setMatchingTimeout(0);
 
     console.log("matchingCompleted 准备进入战场");
     setTimeout(() => {
       // 进入战场
-      navigate("/battlefield?battlefieldId=" + battlefieldId);
+      navigate(`/battlefield/${gameRoomId}/${battlefieldId}`);
     }, 2000);
-  };
+  }, [gameRoomId, navigate]);
 
   const goBackHome = () => {
+    console.log('leaveRoom')
+
+    if(!socket || !userInfo) {
+      return
+    }
+
+    if (isMatching) {
+      setIsMatching(false)
+    }
+
+    // 主动离开房间
+    socket.emit('leaveRoom', {
+      userId: userInfo.id,
+      gameRoomId
+    })
+
     // 回到home
     navigate('/');
   }
 
-  useEffect(() => {
-    console.log("effect");
-
-    function connect() {
-      console.log("connected");
-      setConnectionState(true);
-      // 开始匹配
-      socketRef.current?.emit("requestMatching", player);
-    }
-
-    function disconnect() {
-      console.log("disconnect");
-      setConnectionState(false);
-    }
-
-    function matchmakingCompleted(matchedPlayers: ClientPlayer[], battlefieldId: string) {
-      console.log("matchmakingCompleted", matchedPlayers, battlefieldId);
-      setMatchedPlayers(matchedPlayers);
-      matchingCompleted(battlefieldId);
-    }
-
-    if (isMatching) {
-      // 开启60s计时
-      clearInterval(matchingTimerIdRef.current);
-      matchingTimerIdRef.current = setInterval(() => {
-        setMatchingTimeout((v) => {
-          if (v === 60) {
-            // 取消匹配
-            setIsMatching(false);
-            return 60;
-          }
-          return v + 1;
-        });
-      }, 1000);
-
-      // 连接服务器
-      socketRef.current = io(`${SOCKET_SERVER_URL}/matchmaking`, {
-        auth: {
-          token: player.id,
-        },
-      });
-      // console.log("socketRef.current", socketRef.current);
-
-      socketRef.current.on("connect", connect);
-      socketRef.current.on("disconnect", disconnect);
-      socketRef.current.on("matchmakingCompleted", matchmakingCompleted);
-
-      //     socketRef.current.on("offlineInquiry", () => {
-      //       socketRef.current.emit("offlineInquiryAck");
-      //     });
-      //     socketRef.current.on("playerOffline", (player) => {
-      //       setPlayers((v) => {
-      //         return v.map((item) => {
-      //           if (item.id === player.id) {
-      //             return {
-      //               ...item,
-      //               isOnline: false,
-      //             };
-      //           }
-      //           return item;
-      //         });
-      //       });
-      //     });
-      //     socketRef.current.on("playerReconnection", (player, roomPlayers) => {
-      //       if (player.id === client.id) {
-      //         setMatchingSucceeded(true);
-      //       }
-      //       setPlayers(
-      //         roomPlayers.map((item) => {
-      //           return {
-      //             ...item,
-      //           };
-      //         })
-      //       );
-      //     });
-      //   }
-
-    } else {
-      cancelMatching();
-    }
-
-    return () => {
-      console.log("cleanup");
-      socketRef.current?.disconnect();
-      socketRef.current?.off("connect", connect);
-      socketRef.current?.off("disconnect", disconnect);
-      socketRef.current?.off("matchmakingCompleted", matchmakingCompleted);
-    };
-  }, [isMatching]);
-
-  // async function getGameRoomInfo() {
-  //   try {
-  //     const res = await getRoom({
-  //       gameRoomId: gameRoomId!
-  //     })
-
-  //     console.log('getGameRoomInfo', res)
-
-  //     setGameRoom(res.data.gameRoom)
-  //   } catch (err) {
-
-  //   }
-  // }
+  const matchmakingCompleted = useCallback((matchedPlayers: ClientPlayer[], battlefieldId: string) => {
+    console.log("matchmakingCompleted", matchedPlayers, battlefieldId);
+    setMatchedPlayers(matchedPlayers);
+    matchingCompleted(battlefieldId);
+  }, [matchingCompleted])
 
   function updateGameRoomInfo(gameRoom: GameRoomInfo) {
     console.log('updateGameRoomInfo', gameRoom)
@@ -182,34 +98,115 @@ const GameRoom: React.FC = () => {
   }
 
   useEffect(() => {
-    if (socket && gameRoomId) {
-      socket.emit('enterRoom', gameRoomId)
+    socket?.on('enterRoom', updateGameRoomInfo)
+    socket?.on('leaveRoom', updateGameRoomInfo)
+    socket?.on("matchmakingCompleted", matchmakingCompleted);
 
-      socket.on('enterRoom', updateGameRoomInfo)
-      socket.on('leaveRoom', updateGameRoomInfo)
+    return () => {
+      socket?.off('enterRoom', updateGameRoomInfo)
+      socket?.off('leaveRoom', updateGameRoomInfo)
+      socket?.off("matchmakingCompleted", matchmakingCompleted);
+    }
+  }, [socket, matchmakingCompleted])
+
+  useEffect(() => {
+    console.log("effect");
+
+    if (socket && userInfo) {
+      if (isMatching) {
+        // 开启60s计时
+        clearInterval(matchingTimerIdRef.current);
+        matchingTimerIdRef.current = setInterval(() => {
+          setMatchingTimeout((v) => {
+            if (v === 60) {
+              // 取消匹配
+              setIsMatching(false);
+              return 60;
+            }
+            return v + 1;
+          });
+        }, 1000);
+
+        const player = {
+          id: userInfo.id,
+          name: userInfo.name,
+
+          level: 1,
+          health: 1000,
+          healthMax: 1000,
+          weapon: {
+            angleRange: 30,
+            damage: 250,
+          },
+
+          centerPoint: null,
+          direction: null
+        }
+        socket.emit('requestMatching', player)
+
+        //     socketRef.current.on("offlineInquiry", () => {
+        //       socketRef.current.emit("offlineInquiryAck");
+        //     });
+        //     socketRef.current.on("playerOffline", (player) => {
+        //       setPlayers((v) => {
+        //         return v.map((item) => {
+        //           if (item.id === player.id) {
+        //             return {
+        //               ...item,
+        //               isOnline: false,
+        //             };
+        //           }
+        //           return item;
+        //         });
+        //       });
+        //     });
+        //     socketRef.current.on("playerReconnection", (player, roomPlayers) => {
+        //       if (player.id === client.id) {
+        //         setMatchingSucceeded(true);
+        //       }
+        //       setPlayers(
+        //         roomPlayers.map((item) => {
+        //           return {
+        //             ...item,
+        //           };
+        //         })
+        //       );
+        //     });
+        //   }
+
+      }
+      else if (isMatching === false) {
+        cancelMatching();
+      }
+    }
+  }, [isMatching, socket, userInfo, cancelMatching]);
+
+  useEffect(() => {
+    if (socket && gameRoomId) {
+      console.log('enterRoom')
+      socket.emit('enterRoom', gameRoomId)
     }
 
     return () => {
       // 刷新页面后 effect的cleanup中 socket为null
-      console.log('clean up', socket, userInfo, gameRoomId)
+      // console.log('clean up', socket, userInfo, gameRoomId)
 
-      if (socket && userInfo && gameRoomId) {
-        console.log('leaveRoom')
-        // 用户离开房间
-        socket.emit('leaveRoom', {
-          userId: userInfo.id,
-          gameRoomId
-        })
+      // if (socket && userInfo && gameRoomId) {
+      //   console.log('leaveRoom')
 
-        socket.off('enterRoom', updateGameRoomInfo)
-        socket.off('leaveRoom', updateGameRoomInfo)
-      }
+      //   // 用户离开房间
+      //   socket.emit('leaveRoom', {
+      //     userId: userInfo.id,
+      //     gameRoomId
+      //   })
+      // }
     }
-  }, [gameRoomId, socket])
+  }, [gameRoomId, socket, userInfo])
 
   console.log("render");
 
   if (!gameRoomId || !gameRoom) {
+    console.log(gameRoomId, gameRoom)
     return '无效的房间'
   }
 
@@ -223,12 +220,6 @@ const GameRoom: React.FC = () => {
           <span>{gameRoomId}</span>
         </div>
 
-
-
-
-
-
-
         <div>------------------------------------</div>
         <div>
           <label>玩家ID：</label>
@@ -237,10 +228,6 @@ const GameRoom: React.FC = () => {
         <div>
           <label>房间号：</label>
           <span>123456</span>
-        </div>
-        <div>
-          <label>连接状态：</label>
-          <span>{connectionState ? "✔️" : "❌"}</span>
         </div>
         {isMatching && (
           <div>

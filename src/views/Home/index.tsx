@@ -5,8 +5,8 @@ import { useNavigate } from "react-router-dom";
 import { clearUserInfo } from "../../store/userInfoSlice";
 import { enterRoom, GameRoomList, getRoomList } from "../../api/gameRoom";
 import ResolutionSelect from "./components/resolution";
-import { useContext, useEffect, useRef, useState } from "react";
-import { SocketContext } from "../../context/socket";
+import { useContext, useEffect, useState } from "react";
+import { SocketContext } from "../../context/socket/socketContext";
 
 function Home() {
     const userInfo = useAppSelector((state) => state.userInfo.value)
@@ -97,7 +97,7 @@ function Home() {
 
             socket?.off("gameRoomCreated", onGameRoomCreated);
         }
-    }, [socket])
+    }, [socket, navigate])
 
     return (
         <div className="home">

@@ -1,9 +1,9 @@
 
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom";
 import "./index.scss"
 import { setUserInfo } from "../../store/userInfoSlice";
-import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { useAppDispatch } from "../../store/hooks";
 import { userLogin } from "../../api/user";
 import { startRequestNewTokenTimer } from "../../utils/requestNewToken";
 
@@ -49,12 +49,20 @@ function Login() {
                 <label>username:</label>
                 <input type="text" value={username} onChange={(e) => {
                     setUsername(e.target.value)
+                }} onKeyUp={(e) => {
+                    if(e.code === 'Enter') {
+                        handleLogin()
+                    }
                 }} />
             </div>
             <div>
                 <label>password:</label>
                 <input type="password" value={password} onChange={(e) => {
                     setPassword(e.target.value)
+                }} onKeyUp={(e) => {
+                    if(e.code === 'Enter') {
+                        handleLogin()
+                    }
                 }} />
             </div>
             <div>
